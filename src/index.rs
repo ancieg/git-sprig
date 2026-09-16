@@ -108,24 +108,31 @@ fn forget_in_gitmodules(git: &Git<'_>, submodules: &[Submodule]) -> Result<()> {
     // Read the configured keys once; removing sections below only ever drops
     // the keys of our own submodules, so what is left can be worked out here.
     let keys = git.run(["config", "--file", ".gitmodules", "--name-only", "--list"])?;
+    // A key is `<section>.<variable>`. Variable names hold no dots but submodule
+    // names may, so `submodule.foo.bar.path` belongs to `foo.bar`, not to `foo`:
+    // compare whole sections, never prefixes.
+    let sections: Vec<&str> = keys
+        .lines()
+        .map(|key| key.rsplit_once('.').map_or(key, |(section, _)| section))
+        .collect();
     let mut removed = Vec::new();
     for submodule in submodules {
-        let prefix = format!("submodule.{}.", submodule.name);
-        if keys.lines().any(|key| key.starts_with(&prefix)) {
+        let section = format!("submodule.{}", submodule.name);
+        if sections.contains(&section.as_str()) {
             git.run([
                 "config",
                 "--file",
                 ".gitmodules",
                 "--remove-section",
-                &format!("submodule.{}", submodule.name),
+                &section,
             ])?;
-            removed.push(prefix);
+            removed.push(section);
         }
     }
 
-    let empty = keys
-        .lines()
-        .all(|key| removed.iter().any(|prefix| key.starts_with(prefix)));
+    let empty = sections
+        .iter()
+        .all(|section| removed.iter().any(|gone| gone == section));
     if empty {
         git.run([
             "rm",

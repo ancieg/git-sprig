@@ -132,6 +132,50 @@ fn stage_removes_gitmodules_once_no_submodule_is_left() {
     );
 }
 
+/// Submodules are named after their paths unless told otherwise, and a name may
+/// hold dots: staging `vendor/child` must leave `vendor/child.old` in place.
+#[test]
+fn stage_keeps_a_submodule_whose_name_extends_a_staged_one() {
+    let fx = Fixture::new();
+    let sup = fx.superproject();
+    add_submodule(&sup, &fx.path("remotes/grand"), "vendor/child.old");
+    commit_all(&sup, "a submodule whose name extends another's");
+    let clone = fx.path("clone");
+    git(
+        fx.root.path(),
+        &[
+            "clone",
+            "-q",
+            sup.to_str().unwrap(),
+            clone.to_str().unwrap(),
+        ],
+    );
+    git(
+        &clone,
+        &["config", "submodule.vendor/child.old.active", "false"],
+    );
+
+    plant(&clone, &clone, &["--stage"]).assert_ok();
+
+    assert!(
+        clone.join(".gitmodules").exists(),
+        ".gitmodules was removed while vendor/child.old still needs it"
+    );
+    let keys = git(
+        &clone,
+        &["config", "--file", ".gitmodules", "--name-only", "--list"],
+    );
+    assert!(
+        keys.lines()
+            .any(|key| key == "submodule.vendor/child.old.path"),
+        "{keys}"
+    );
+    assert!(
+        !keys.lines().any(|key| key == "submodule.vendor/child.path"),
+        "{keys}"
+    );
+}
+
 #[test]
 fn stage_needs_the_work_tree_as_basedir() {
     let fx = Fixture::new();

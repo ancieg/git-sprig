@@ -16,23 +16,6 @@
       blobs (`--filter=blob:none`), followed by fetching just the needed blobs,
       would shrink that, once gix supports filters (PR #2375, see Upstream).
 
-## Publishing to crates.io
-
-The package and its command are called `git-sprig`; `homepage` and
-`repository` are set, `TODO.md` and `.gitignore` are kept out of the package,
-and `rust-version` is 1.88.0. `cargo publish --dry-run` passes. The README's
-relative links work on the crate page too: crates.io rewrites them for
-repositories hosted on GitHub.
-
-1. [ ] **Build and test with Rust 1.88.** The CI workflow builds and tests
-       against both 1.88 and stable, and needs a remote to run on. Locally the
-       question can only be put to clippy's `incompatible_msrv` check, which
-       passes; no dependency declares a newer minimum either.
-2. [ ] **Push the repository** to https://github.com/ancieg/git-sprig, where
-       `homepage` and `repository` say it lives.
-3. [ ] **Release:** `git tag v0.1.0`, then `cargo publish`. This cannot be
-       undone; a version can be yanked but never deleted or replaced.
-
 ## Upstream: gitoxide
 
 Many feature issues are closed and moved to "Feature Proposal" discussions

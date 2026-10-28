@@ -312,7 +312,7 @@ fn open_direct(
 ) -> Result<DirectSource> {
     let root_url = gix::url::parse(gix::bstr::BStr::new(from)).with_context(|| {
         format!(
-            "--from {} is not a valid git URL or path",
+            "source repository {} is not a valid git URL or path",
             report::quoted(from)
         )
     })?;

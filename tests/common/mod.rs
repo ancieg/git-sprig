@@ -252,7 +252,7 @@ pub fn plant(repo: &Path, out: &Path, extra: &[&str]) -> Run {
 
 /// Materialize the complete tree of `source` at `rev` into `out`.
 pub fn direct(source: &str, out: &Path, rev: &str, extra: &[&str]) -> Run {
-    let mut args = vec!["--from", source, "--rev", rev, "-b", out.to_str().unwrap()];
+    let mut args = vec![source, out.to_str().unwrap(), "--revision", rev];
     args.extend(extra);
     run(&args)
 }

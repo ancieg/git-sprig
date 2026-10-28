@@ -54,7 +54,7 @@ Shell completions work for both `git-sprig` and `git sprig`:
 Export a complete project, including its submodules, straight from a repository:
 
 ```console
-$ git-sprig --from https://example.com/project.git --rev v1.4.0 --basedir project-1.4.0
+$ git-sprig https://example.com/project.git project-1.4.0 --revision v1.4.0
 ```
 
 The destination contains the project's own files as well as its submodules,
@@ -87,7 +87,7 @@ everything inside it, which is why `vendor/libfoo` is reported last.
 **A complete source tarball.** Use direct mode, then archive the resulting tree:
 
 ```console
-$ git-sprig --from project --rev v1.4.0 --basedir project-1.4.0
+$ git-sprig project project-1.4.0 --revision v1.4.0
 $ tar -czf project-1.4.0.tar.gz project-1.4.0
 ```
 
@@ -145,10 +145,10 @@ $ git-sprig -c http.proxy=http://proxy.example.com:3128
 
 | Option | What it does |
 |---|---|
+| `<repository> <directory>` | Materialize the complete root tree of a local or remote repository into the required destination. Cannot be combined with `-C`, `--basedir`, or `--stage`. |
 | `-C, --repo <DIR>` | The project to read submodules from. Default: the current directory. |
-| `--from <URL-or-path>` | Materialize the complete root tree of a local or remote repository. Cannot be combined with `-C` or `--stage`. |
-| `--rev <REV>` | Which commit, branch or tag of the source to use. Default: `HEAD`. |
-| `-b, --basedir <DIR>` | Where to write. Required with `--from`, where it is the root destination; defaults to the current directory otherwise. |
+| `--revision <tree-ish>` | Which commit, branch or tag of the source to use. Default: `HEAD`. `--rev` is a compatibility alias. |
+| `-b, --basedir <DIR>` | Where to write submodules in `-C` mode. Default: the current directory. |
 | `-j, --jobs <N>` | How many submodules to download at the same time. Default: the number of CPUs, at most 8. |
 | `--no-recursive` | Don't go into submodules of submodules. |
 | `--max-depth <N>` | How many levels of submodules to fetch. Default: 32; 0 means no limit. The direct root does not count as a level. |
@@ -166,10 +166,11 @@ $ git-sprig -c http.proxy=http://proxy.example.com:3128
 
 ## Good to know
 
-- **Destinations are replaced completely.** In direct mode, the whole `--basedir`
-  is replaced, so files from an older revision cannot linger. Without `--from`,
-  only submodule folders are replaced; the project's own files are never
-  touched, except the index and `.gitmodules` when you pass `--stage`.
+- **Destinations are replaced completely.** In direct mode, the whole positional
+  `<directory>` is replaced, so files from an older revision cannot linger.
+  Without a positional repository, only submodule folders are replaced; the
+  project's own files are never touched, except the index and `.gitmodules`
+  when you pass `--stage`.
 - **Existing checkouts are protected.** If a root destination or submodule
   folder is a real git checkout with its own `.git`, git-sprig stops before
   changing anything, so you can't lose work by accident. Pass `--force` to

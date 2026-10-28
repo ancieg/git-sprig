@@ -35,10 +35,11 @@ use crate::{
     version,
     about = "Plant git repositories and submodules as plain files, without histories",
     long_about = "Fetches exactly the commit each submodule is pinned to, writes its files and \
-                  does the same for nested submodules. With --from, materializes the complete \
-                  root tree as well. No history and no .git directories are left behind.\n\n\
+                  does the same for nested submodules. A positional repository and destination \
+                  materialize the complete root tree as well. No history and no .git directories \
+                  are left behind.\n\n\
                   Each destination is replaced as a whole, once it has been written completely. \
-                  Direct mode requires an explicit --basedir. All output goes to stderr."
+                  Direct mode requires an explicit destination. All output goes to stderr."
 )]
 #[expect(
     clippy::struct_excessive_bools,
@@ -49,21 +50,25 @@ pub(crate) struct Args {
     #[arg(short = 'C', long, default_value = ".", value_name = "DIR")]
     pub(crate) repo: PathBuf,
 
-    /// Materialize the complete tree of a local or remote repository.
+    /// Local or remote repository to materialize completely.
     #[arg(
-        long,
-        value_name = "URL-or-path",
+        value_name = "repository",
+        requires = "directory",
         conflicts_with = "repo",
         conflicts_with = "stage",
-        requires = "basedir"
+        conflicts_with = "basedir"
     )]
-    pub(crate) from: Option<String>,
+    pub(crate) repository: Option<String>,
+
+    /// Required destination for the complete repository tree.
+    #[arg(value_name = "directory")]
+    pub(crate) directory: Option<PathBuf>,
 
     /// Revision of the source repository to use.
-    #[arg(long, default_value = "HEAD", value_name = "REV")]
-    pub(crate) rev: String,
+    #[arg(long, alias = "rev", default_value = "HEAD", value_name = "tree-ish")]
+    pub(crate) revision: String,
 
-    /// Destination directory (default without --from: .; required with --from).
+    /// Base directory for submodule-only mode (default: .).
     #[arg(short, long, value_name = "DIR")]
     pub(crate) basedir: Option<PathBuf>,
 
@@ -150,14 +155,20 @@ impl Args {
         if let Some(shell) = self.generate_completions {
             return Action::GenerateCompletions(shell);
         }
-        let source = self.from.map_or_else(
-            || Source::Superproject { repo: self.repo },
-            |from| Source::Direct { from },
-        );
+        let (source, basedir) = match self.repository {
+            Some(from) => (
+                Source::Direct { from },
+                self.directory.unwrap_or_else(|| PathBuf::from(".")),
+            ),
+            None => (
+                Source::Superproject { repo: self.repo },
+                self.basedir.unwrap_or_else(|| PathBuf::from(".")),
+            ),
+        };
         Action::Plant(Box::new(Config {
             source,
-            rev: self.rev,
-            basedir: self.basedir.unwrap_or_else(|| PathBuf::from(".")),
+            rev: self.revision,
+            basedir,
             remote_url: self.remote_url,
             overrides: self.config,
             tempdir: self.tempdir,

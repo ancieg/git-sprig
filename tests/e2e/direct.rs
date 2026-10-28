@@ -228,10 +228,11 @@ fn rejects_invalid_direct_arguments_before_fetching() {
     let root = tempfile::tempdir().unwrap();
     let out = root.path().join("out");
     let missing = file_url(&root.path().join("missing"));
-    let cases: [&[&str]; 3] = [
-        &["--from", &missing],
-        &["--from", &missing, "-b", out.to_str().unwrap(), "--stage"],
-        &["--from", &missing, "-b", out.to_str().unwrap(), "-C", "."],
+    let cases: [&[&str]; 4] = [
+        &[&missing],
+        &[&missing, out.to_str().unwrap(), "--stage"],
+        &[&missing, out.to_str().unwrap(), "-C", "."],
+        &[&missing, out.to_str().unwrap(), "-b", out.to_str().unwrap()],
     ];
     for args in cases {
         let run = run(args);
@@ -294,9 +295,7 @@ fn interruption_keeps_the_previous_root_and_cleans_up() {
     write(&out, "previous.txt", "previous\n");
 
     let mut child = git_sprig(&[
-        "--from",
         repo.to_str().unwrap(),
-        "-b",
         out.to_str().unwrap(),
         "--tempdir",
         tmp.to_str().unwrap(),

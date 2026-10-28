@@ -60,6 +60,24 @@ fn materializes_a_local_tree_at_an_older_revision() {
 }
 
 #[test]
+fn streams_loose_files_from_local_repositories() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = root.path().join("repo");
+    init_repo(&repo);
+    let big = vec![0x5a; 1 << 20];
+    std::fs::write(repo.join("big.bin"), &big).unwrap();
+    write(&repo, "small.txt", "small\n");
+    commit_all(&repo, "loose files");
+
+    let out = root.path().join("out");
+    let run = direct(repo.to_str().unwrap(), &out, "HEAD", &["-v", "--raw"]);
+    run.assert_ok();
+    run.assert_says("wrote 2 files, 2 streamed");
+    assert_eq!(std::fs::read(out.join("big.bin")).unwrap(), big);
+    assert_eq!(read(&out.join("small.txt")), "small\n");
+}
+
+#[test]
 fn resolves_remote_ids_branches_tags_and_head() {
     let root = tempfile::tempdir().unwrap();
     let repo = root.path().join("repo");

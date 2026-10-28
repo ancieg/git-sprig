@@ -24,7 +24,7 @@ rejected or done.
 
 | What git-sprig needs | Status in gitoxide | What git-sprig does meanwhile |
 |---|---|---|
-| Streaming a blob without loading it whole | Issue [#1595](https://github.com/GitoxideLabs/gitoxide/issues/1595), moved to discussion [#2789](https://github.com/GitoxideLabs/gitoxide/discussions/2789), where there is no activity | Inflates blobs stored whole straight from the pack (`Packs` in [tree.rs](src/tree.rs)) |
+| Streaming a blob without loading it whole | Issue [#1595](https://github.com/GitoxideLabs/gitoxide/issues/1595), moved to discussion [#2789](https://github.com/GitoxideLabs/gitoxide/discussions/2789), where there is no activity | Inflates whole packed blobs and loose blobs straight from storage (`Objects` in [tree.rs](src/tree.rs)) |
 | Bounded memory while receiving and indexing a pack | Issue [#2527](https://github.com/GitoxideLabs/gitoxide/issues/2527), closed; the move to a discussion failed, so none exists | Nothing; the fetch peaks at about the largest file's size |
 | Partial fetches with filters such as `blob:none` | Issue [#1046](https://github.com/GitoxideLabs/gitoxide/issues/1046), moved to discussion [#2791](https://github.com/GitoxideLabs/gitoxide/discussions/2791); PR [#2375](https://github.com/GitoxideLabs/gitoxide/pull/2375) open and unmerged | The full fallback fetch |
 | Submodules when archiving or cloning | Issue [#1182](https://github.com/GitoxideLabs/gitoxide/issues/1182) (gix-archive), moved to discussion [#2769](https://github.com/GitoxideLabs/gitoxide/discussions/2769); issue [#2387](https://github.com/GitoxideLabs/gitoxide/issues/2387) (clone) closed with nothing planned | git-sprig is that tool |

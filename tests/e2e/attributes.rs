@@ -162,3 +162,87 @@ fn line_endings_match_git_for_every_setting() {
         );
     }
 }
+
+#[test]
+fn process_filters_are_not_allowed_to_delay_their_output() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = tempfile::tempdir().unwrap();
+    let filter = root.path().join("delayed-filter.sh");
+    std::fs::write(
+        &filter,
+        r#"#!/bin/sh
+read_packet() {
+    header=$(dd bs=1 count=4 2>/dev/null) || return 1
+    [ "${#header}" -eq 4 ] || return 1
+    length=$((0x$header))
+    [ "$length" -ne 0 ] || return 2
+    packet=$(dd bs=1 count=$((length - 4)) 2>/dev/null)
+}
+send_packet() {
+    text=$1
+    printf '%04x%s' "$((${#text} + 4))" "$text"
+}
+flush() {
+    printf 0000
+}
+read_packet || exit 1
+[ "$packet" = git-filter-client ] || exit 1
+read_packet || exit 1
+[ "$packet" = version=2 ] || exit 1
+read_packet
+[ $? -eq 2 ] || exit 1
+send_packet git-filter-server
+send_packet version=2
+flush
+while read_packet; do :; done
+send_packet capability=clean
+send_packet capability=smudge
+send_packet capability=delay
+flush
+delayed=false
+while read_packet; do
+    [ "$packet" != can-delay=1 ] || delayed=true
+done
+while read_packet; do :; done
+if $delayed; then
+    send_packet status=delayed
+    flush
+    exit 0
+fi
+send_packet status=success
+flush
+send_packet 'filtered
+'
+flush
+send_packet status=success
+flush
+"#,
+    )
+    .unwrap();
+    std::fs::set_permissions(&filter, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let sub = root.path().join("remotes/sub");
+    init_repo(&sub);
+    write(&sub, ".gitattributes", "artifact.bin filter=delay\n");
+    write(&sub, "artifact.bin", "stored\n");
+    commit_all(&sub, "filtered file");
+    let sup = root.path().join("remotes/super");
+    init_repo(&sup);
+    write(&sup, "super.txt", "superproject\n");
+    commit_all(&sup, "super");
+    add_submodule(&sup, &sub, "vendor/sub");
+    commit_all(&sup, "submodule");
+
+    let process = format!("filter.delay.process={}", filter.display());
+    let run = plant(
+        &sup,
+        &root.path().join("out"),
+        &["-c", &process, "-c", "filter.delay.required=true"],
+    );
+    run.assert_ok();
+    assert_eq!(
+        read(&root.path().join("out/vendor/sub/artifact.bin")),
+        "filtered\n"
+    );
+}

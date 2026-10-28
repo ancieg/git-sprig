@@ -385,7 +385,10 @@ fn convert(
         .convert_to_worktree(
             data,
             rela_path,
-            gix::filter::plumbing::pipeline::convert::to_worktree::Options::default(),
+            gix::filter::plumbing::pipeline::convert::to_worktree::Options {
+                can_delay: gix::filter::plumbing::driver::apply::Delay::Forbid,
+                ..Default::default()
+            },
         )
         .with_context(|| format!("cannot filter {}", report::quoted(relative.display())))?;
     if let Some(bytes) = outcome.as_bytes() {

@@ -157,6 +157,76 @@ impl Fetcher {
         Ok((full, Strategy::AllRefs))
     }
 
+    /// Resolve a remote revision, then fetch its commit into a temporary repository.
+    pub fn fetch_revision(
+        &self,
+        url: &gix::Url,
+        rev: &str,
+        reporter: &Reporter,
+    ) -> Result<(Ephemeral, ObjectId, Strategy)> {
+        let commit = match ObjectId::from_hex(rev.as_bytes()) {
+            Ok(commit) => commit,
+            Err(_) => self.resolve_revision(url, rev)?,
+        };
+        let (repo, strategy) = self.fetch_commit(url, commit, reporter)?;
+        Ok((repo, commit, strategy))
+    }
+
+    /// Read advertised refs without receiving a pack, peeling annotated tags.
+    fn resolve_revision(&self, url: &gix::Url, rev: &str) -> Result<ObjectId> {
+        let scratch = self.create()?;
+        let local = scratch.repo().to_thread_local();
+        let mut remote = local
+            .remote_at(url.clone())
+            .with_context(|| format!("cannot set up a remote for {}", report::quoted(url)))?
+            .with_fetch_tags(Tags::None);
+        remote
+            .replace_refspecs(
+                [
+                    "HEAD",
+                    "refs/heads/*:refs/remotes/origin/*",
+                    "refs/tags/*:refs/tags/*",
+                ],
+                Direction::Fetch,
+            )
+            .context("cannot install refspecs")?;
+        let prepared = remote
+            .connect(Direction::Fetch)
+            .with_context(|| NoFallback {
+                stage: "connect to",
+                url: url.to_string(),
+            })?
+            .prepare_fetch(Discard, ref_map::Options::default())
+            .with_context(|| NoFallback {
+                stage: "negotiate with",
+                url: url.to_string(),
+            })?;
+
+        let candidates = if rev == "HEAD" || rev.starts_with("refs/") {
+            vec![rev.to_owned()]
+        } else {
+            vec![format!("refs/tags/{rev}"), format!("refs/heads/{rev}")]
+        };
+        let resolved = candidates.iter().find_map(|candidate| {
+            prepared.ref_map().remote_refs.iter().find_map(|remote| {
+                let (name, target, peeled) = remote.unpack();
+                if name == gix::bstr::BStr::new(candidate.as_str()) {
+                    peeled.or(target).map(ToOwned::to_owned)
+                } else {
+                    None
+                }
+            })
+        });
+        drop(prepared);
+        resolved.ok_or_else(|| {
+            anyhow::anyhow!(
+                "cannot resolve remote revision {} at {}",
+                report::quoted(rev),
+                report::quoted(url)
+            )
+        })
+    }
+
     fn create(&self) -> Result<Ephemeral> {
         let dir = tempfile::Builder::new()
             .prefix("odb-")

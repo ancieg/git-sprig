@@ -52,13 +52,19 @@ pub enum Mode {
     DryRun,
 }
 
+pub enum Source {
+    /// Read gitlinks from a local superproject, leaving its own files alone.
+    Superproject { repo: PathBuf },
+    /// Materialize the complete root tree of a local or remote repository.
+    Direct { from: String },
+}
+
 pub struct Config {
-    /// The superproject to read the submodules from.
-    pub repo: PathBuf,
+    pub source: Source,
     pub rev: String,
-    /// The directory submodule paths are resolved against.
+    /// The submodule base in legacy mode, or the root destination in direct mode.
     pub basedir: PathBuf,
-    /// Base for relative submodule URLs; the superproject's remote if absent.
+    /// Base for relative submodule URLs; the source's remote or URL if absent.
     pub remote_url: Option<String>,
     /// `key=value` pairs for the fetches, like `git -c`.
     pub overrides: Vec<String>,

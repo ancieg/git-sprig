@@ -35,6 +35,7 @@ fn generates_the_manual_page() {
     let page = generated(&["--generate-man"]);
     assert!(page.contains(".TH "), "{page}");
     assert!(page.contains("\\-\\-stage"), "{page}");
+    assert!(page.contains("\\-\\-from"), "{page}");
     assert!(page.contains("\\-\\-generate\\-completions"), "{page}");
     assert!(page.contains(".SH \"EXIT STATUS\"\n"), "{page}");
     assert!(
@@ -53,6 +54,7 @@ fn generates_completions_for_every_shell() {
         let script = generated(&["--generate-completions", shell]);
         assert!(script.contains(expected), "{shell}:\n{script}");
         assert!(script.contains("stage"), "{shell}:\n{script}");
+        assert!(script.contains("from"), "{shell}:\n{script}");
     }
 }
 

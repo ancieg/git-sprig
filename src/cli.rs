@@ -23,7 +23,7 @@ use std::{num::NonZeroUsize, path::PathBuf};
 use clap::Parser;
 
 use crate::{
-    config::{Action, Checkouts, Config, IndexUpdate, Mode},
+    config::{Action, Checkouts, Config, IndexUpdate, Mode, Source},
     report::Verbosity,
     schedule::Recursion,
     tree::Conversion,
@@ -33,12 +33,12 @@ use crate::{
 #[command(
     name = "git-sprig",
     version,
-    about = "Plant git submodules as plain files, without their histories",
+    about = "Plant git repositories and submodules as plain files, without histories",
     long_about = "Fetches exactly the commit each submodule is pinned to, writes its files and \
-                  does the same for nested submodules. No history and no .git directories are \
-                  left behind.\n\n\
-                  Each submodule directory is replaced as a whole, once it has been written \
-                  completely. All output goes to stderr."
+                  does the same for nested submodules. With --from, materializes the complete \
+                  root tree as well. No history and no .git directories are left behind.\n\n\
+                  Each destination is replaced as a whole, once it has been written completely. \
+                  Direct mode requires an explicit --basedir. All output goes to stderr."
 )]
 #[expect(
     clippy::struct_excessive_bools,
@@ -49,15 +49,25 @@ pub(crate) struct Args {
     #[arg(short = 'C', long, default_value = ".", value_name = "DIR")]
     pub(crate) repo: PathBuf,
 
-    /// Revision of the superproject to use.
+    /// Materialize the complete tree of a local or remote repository.
+    #[arg(
+        long,
+        value_name = "URL-or-path",
+        conflicts_with = "repo",
+        conflicts_with = "stage",
+        requires = "basedir"
+    )]
+    pub(crate) from: Option<String>,
+
+    /// Revision of the source repository to use.
     #[arg(long, default_value = "HEAD", value_name = "REV")]
     pub(crate) rev: String,
 
-    /// Directory the submodule paths are resolved against.
-    #[arg(short, long, default_value = ".", value_name = "DIR")]
-    pub(crate) basedir: PathBuf,
+    /// Destination directory (default without --from: .; required with --from).
+    #[arg(short, long, value_name = "DIR")]
+    pub(crate) basedir: Option<PathBuf>,
 
-    /// Replace submodule directories that have a .git of their own, discarding work in them.
+    /// Replace destinations that have a .git of their own, discarding work in them.
     #[arg(long)]
     pub(crate) force: bool,
 
@@ -77,7 +87,7 @@ pub(crate) struct Args {
     #[arg(long, default_value_t = 32, value_name = "N")]
     pub(crate) max_depth: usize,
 
-    /// Base URL for relative submodule URLs; defaults to the superproject's remote.
+    /// Base URL for relative submodule URLs; defaults to the source remote or URL.
     #[arg(long, value_name = "URL")]
     pub(crate) remote_url: Option<String>,
 
@@ -140,10 +150,14 @@ impl Args {
         if let Some(shell) = self.generate_completions {
             return Action::GenerateCompletions(shell);
         }
+        let source = self.from.map_or_else(
+            || Source::Superproject { repo: self.repo },
+            |from| Source::Direct { from },
+        );
         Action::Plant(Box::new(Config {
-            repo: self.repo,
+            source,
             rev: self.rev,
-            basedir: self.basedir,
+            basedir: self.basedir.unwrap_or_else(|| PathBuf::from(".")),
             remote_url: self.remote_url,
             overrides: self.config,
             tempdir: self.tempdir,

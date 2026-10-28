@@ -250,6 +250,13 @@ pub fn plant(repo: &Path, out: &Path, extra: &[&str]) -> Run {
     run(&args)
 }
 
+/// Materialize the complete tree of `source` at `rev` into `out`.
+pub fn direct(source: &str, out: &Path, rev: &str, extra: &[&str]) -> Run {
+    let mut args = vec!["--from", source, "--rev", rev, "-b", out.to_str().unwrap()];
+    args.extend(extra);
+    run(&args)
+}
+
 pub fn read(path: &Path) -> String {
     std::fs::read_to_string(path)
         .unwrap_or_else(|err| panic!("cannot read {}: {err}", path.display()))

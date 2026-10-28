@@ -1,10 +1,10 @@
 # git-sprig
 
-**git-sprig fills in a project's git submodules with plain files.** Its `git-sprig`
-command takes every submodule at exactly the commit your project points to,
-writes out its files, and does the same for submodules inside submodules. No
-history is downloaded and no `.git` folders are left behind — you get just the
-source code.
+**git-sprig materializes Git repositories and their submodules as plain files.**
+It can export a complete repository tree directly, or fill in the submodules of
+an existing project. Every tree is written at exactly the requested or pinned
+commit, recursively. No `.git` folders are left behind — you get just the source
+code.
 
 That comes in handy whenever you need a project's complete sources but not its
 repositories: release tarballs, distribution packages, container images, CI
@@ -51,7 +51,18 @@ Shell completions work for both `git-sprig` and `git sprig`:
 
 ## Quick start
 
-Clone a project that uses submodules and run git-sprig inside it:
+Export a complete project, including its submodules, straight from a repository:
+
+```console
+$ git-sprig --from https://example.com/project.git --rev v1.4.0 --basedir project-1.4.0
+```
+
+The destination contains the project's own files as well as its submodules,
+with no repository history. It is replaced as a whole only after the complete
+tree has been prepared successfully.
+
+To fill in only the submodules of an existing checkout, clone a project and run
+git-sprig inside it:
 
 ```console
 $ git clone https://example.com/project.git
@@ -73,13 +84,10 @@ everything inside it, which is why `vendor/libfoo` is reported last.
 
 ## Recipes
 
-**A complete source tarball.** git-sprig writes only the submodules, so export the
-project's own files first:
+**A complete source tarball.** Use direct mode, then archive the resulting tree:
 
 ```console
-$ mkdir project-1.4.0
-$ git -C project archive v1.4.0 | tar -x -C project-1.4.0
-$ git-sprig -C project --rev v1.4.0 --basedir project-1.4.0
+$ git-sprig --from project --rev v1.4.0 --basedir project-1.4.0
 $ tar -czf project-1.4.0.tar.gz project-1.4.0
 ```
 
@@ -138,34 +146,38 @@ $ git-sprig -c http.proxy=http://proxy.example.com:3128
 | Option | What it does |
 |---|---|
 | `-C, --repo <DIR>` | The project to read submodules from. Default: the current directory. |
-| `--rev <REV>` | Which commit, branch or tag of the project to use. Default: `HEAD`. |
-| `-b, --basedir <DIR>` | Where to write the submodules. Default: the current directory. |
+| `--from <URL-or-path>` | Materialize the complete root tree of a local or remote repository. Cannot be combined with `-C` or `--stage`. |
+| `--rev <REV>` | Which commit, branch or tag of the source to use. Default: `HEAD`. |
+| `-b, --basedir <DIR>` | Where to write. Required with `--from`, where it is the root destination; defaults to the current directory otherwise. |
 | `-j, --jobs <N>` | How many submodules to download at the same time. Default: the number of CPUs, at most 8. |
 | `--no-recursive` | Don't go into submodules of submodules. |
-| `--max-depth <N>` | How many levels of nested submodules to fetch. Default: 32; 0 means no limit. |
+| `--max-depth <N>` | How many levels of submodules to fetch. Default: 32; 0 means no limit. The direct root does not count as a level. |
 | `--remote-url <URL>` | Where relative submodule URLs are resolved from. |
 | `-c, --config <KEY=VALUE>` | A git setting for the downloads, like `git -c`. |
 | `--raw` | Write files exactly as stored, without converting line endings. |
-| `--force` | Replace submodule folders even if they are git checkouts. |
+| `--force` | Replace destinations even if they are git checkouts. |
 | `--stage` | Replace the submodules in the project's index with their files, ready to commit. |
 | `--tempdir <DIR>` | Where to keep downloads while working. |
-| `--dry-run` | Show what would be fetched and stop. |
+| `--dry-run` | Show what would be fetched and stop without changing the destination. |
 | `-q, --quiet` | Print only errors. |
-| `-v, --verbose` | Print more about each submodule. |
+| `-v, --verbose` | Print more about each repository and submodule. |
 | `--generate-man` | Print the manual page and exit. |
 | `--generate-completions <SHELL>` | Print shell completions (bash, zsh, fish) and exit. |
 
 ## Good to know
 
-- **Submodule folders are replaced completely.** Anything you changed or added
-  inside them is gone after git-sprig runs. The project's own files are never
+- **Destinations are replaced completely.** In direct mode, the whole `--basedir`
+  is replaced, so files from an older revision cannot linger. Without `--from`,
+  only submodule folders are replaced; the project's own files are never
   touched, except the index and `.gitmodules` when you pass `--stage`.
-- **Existing checkouts are protected.** If a submodule folder is a real git
-  checkout with its own `.git`, git-sprig stops before changing anything, so you
-  can't lose work by accident. Pass `--force` to replace it anyway.
-- **Nothing is left half-done.** A submodule folder is swapped in only after it
-  has been downloaded completely. If a download fails or you press Ctrl-C, the
-  old contents stay as they were, even when a server has stopped answering.
+- **Existing checkouts are protected.** If a root destination or submodule
+  folder is a real git checkout with its own `.git`, git-sprig stops before
+  changing anything, so you can't lose work by accident. Pass `--force` to
+  replace it anyway.
+- **Nothing is left half-done.** A destination is swapped in only after its
+  complete tree has been prepared. In direct mode this includes all requested
+  submodules. If a download fails or you press Ctrl-C, the old contents stay as
+  they were, even when a server has stopped answering.
 - **Files look exactly like a git checkout**, with the same line endings and
   permissions.
 - **Older servers work too, just slower.** Some servers refuse to hand out a
@@ -195,12 +207,14 @@ $ git-sprig -c http.proxy=http://proxy.example.com:3128
 
 ## How it works
 
-For each submodule, git-sprig creates a temporary repository and asks the server
-for only the pinned commit, with no history. It writes that commit's files into
-a hidden `.git-sprig-*` folder next to the destination, does the same for the
-submodules inside, and finally moves the folder into place. Each temporary
-repository is deleted as soon as its files are written, and submodules that pin
-the same commit share one download.
+For each remote repository, git-sprig creates a temporary repository and asks
+the server for only the requested or pinned commit, with no history. It writes
+files into a hidden `.git-sprig-*` folder next to the destination, does the same
+for the submodules inside, and finally moves the folder into place. In direct
+mode, the root and all of its submodules share one staging folder, so the root
+destination is replaced only once. Local direct sources are read in place.
+Temporary repositories are deleted as soon as their files are written, and
+submodules that pin the same commit share one download.
 
 ## Development
 

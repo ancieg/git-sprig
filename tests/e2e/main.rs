@@ -22,6 +22,7 @@ mod common;
 
 mod attributes;
 mod cli;
+mod direct;
 mod fetching;
 mod hostile;
 mod interrupts;

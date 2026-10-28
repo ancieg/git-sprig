@@ -1,4 +1,4 @@
-// git-sprig - materialize git submodules as plain files, without their history
+// git-sprig - materialize git repositories and submodules as plain files, without their history
 // Copyright (C) 2026  Anton Zhukharev <ancieg@altlinux.org>
 //
 // This program is free software: you can redistribute it and/or modify
@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-//! `git-sprig` — plant git submodules as plain files, without their histories.
+//! `git-sprig` — plant git repositories and submodules as plain files, without their histories.
 
 // Keep program code from growing panics, silent exits or stray output; unit
 // tests are exempt through clippy.toml.
@@ -82,7 +82,7 @@ fn main() -> ExitCode {
     // Temporary repositories and staging directories are dropped before `run` returns.
     let reporter = Reporter::stderr(config.verbosity);
     let cancel = CancelToken::new();
-    match app::run(*config, &reporter, &cancel) {
+    match app::run(&config, &reporter, &cancel) {
         Ok(()) => ExitCode::SUCCESS,
         Err(_) if cancel.by_user() => {
             // The watchdog may be racing to exit too; only one side prints.

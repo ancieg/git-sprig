@@ -128,6 +128,21 @@ $ git config submodule.vendor/libbar.active false
 $ git-sprig
 ```
 
+**Select top-level submodules** with Git pathspecs. Put includes after `--`, or
+repeat `--exclude` to skip matching paths and globs:
+
+```console
+$ git-sprig -- vendor/libfoo
+$ git-sprig --exclude 'vendor/deprecated*'
+```
+
+Direct mode accepts the same filters. They apply only to top-level submodules;
+included submodules keep their normal recursive behavior:
+
+```console
+$ git-sprig project project-snapshot --revision v1.4.0 -- vendor/libfoo
+```
+
 **Relative submodule URLs** (such as `../libfoo.git`) need to know where the
 project itself came from. If the checkout has no remote, tell git-sprig:
 
@@ -149,6 +164,8 @@ $ git-sprig -c http.proxy=http://proxy.example.com:3128
 | `-C, --repo <DIR>` | The project to read submodules from. Default: the current directory. |
 | `--revision <tree-ish>` | Which commit, branch or tag of the source to use. Default: `HEAD`. `--rev` is a compatibility alias. |
 | `-b, --basedir <DIR>` | Where to write submodules in `-C` mode. Default: the current directory. |
+| `[--] [<pathspec>...]` | Include only matching top-level submodules. Without includes, every submodule is eligible. |
+| `--exclude <pathspec>` | Exclude matching top-level submodules, including glob patterns. May be repeated. |
 | `-j, --jobs <N>` | How many submodules to download at the same time. Default: the number of CPUs, at most 8. |
 | `--no-recursive` | Don't go into submodules of submodules. |
 | `--max-depth <N>` | How many levels of submodules to fetch. Default: 32; 0 means no limit. The direct root does not count as a level. |

@@ -39,7 +39,9 @@ use crate::{
                   materialize the complete root tree as well. No history and no .git directories \
                   are left behind.\n\n\
                   Each destination is replaced as a whole, once it has been written completely. \
-                  Direct mode requires an explicit destination. All output goes to stderr."
+                  Direct mode requires an explicit destination. Pathspecs after -- and --exclude \
+                  filter only top-level submodules. All output goes to stderr.",
+    override_usage = "git-sprig [OPTIONS] [repository] [directory] [--] [<pathspec>...]"
 )]
 #[expect(
     clippy::struct_excessive_bools,
@@ -64,6 +66,10 @@ pub(crate) struct Args {
     #[arg(value_name = "directory")]
     pub(crate) directory: Option<PathBuf>,
 
+    /// Top-level submodule pathspecs to include, after --.
+    #[arg(skip)]
+    pub(crate) includes: Vec<String>,
+
     /// Revision of the source repository to use.
     #[arg(long, alias = "rev", default_value = "HEAD", value_name = "tree-ish")]
     pub(crate) revision: String,
@@ -71,6 +77,10 @@ pub(crate) struct Args {
     /// Base directory for submodule-only mode (default: .).
     #[arg(short, long, value_name = "DIR")]
     pub(crate) basedir: Option<PathBuf>,
+
+    /// Top-level submodule pathspec to exclude; may be repeated.
+    #[arg(long = "exclude", value_name = "pathspec", value_parser = valid_pathspec)]
+    pub(crate) excludes: Vec<String>,
 
     /// Replace destinations that have a .git of their own, discarding work in them.
     #[arg(long)]
@@ -147,6 +157,29 @@ pub(crate) fn default_jobs() -> u16 {
 }
 
 impl Args {
+    pub(crate) fn try_parse() -> Result<Self, clap::Error> {
+        let mut argv: Vec<_> = std::env::args_os().collect();
+        let includes = argv.iter().position(|arg| arg == "--").map(|index| {
+            let includes = argv.split_off(index + 1);
+            argv.pop();
+            includes
+        });
+        let mut parsed = <Self as Parser>::try_parse_from(argv)?;
+        for value in includes.into_iter().flatten() {
+            let value = value.into_string().map_err(|_| {
+                clap::Error::raw(
+                    clap::error::ErrorKind::InvalidValue,
+                    "pathspecs must be valid UTF-8",
+                )
+            })?;
+            let value = valid_pathspec(&value).map_err(|message| {
+                clap::Error::raw(clap::error::ErrorKind::InvalidValue, message)
+            })?;
+            parsed.includes.push(value);
+        }
+        Ok(parsed)
+    }
+
     /// Read the flags into what they mean, once, so nothing downstream has to.
     pub(crate) fn into_action(self) -> Action {
         if self.generate_man {
@@ -169,6 +202,8 @@ impl Args {
             source,
             rev: self.revision,
             basedir,
+            includes: self.includes,
+            excludes: self.excludes,
             remote_url: self.remote_url,
             overrides: self.config,
             tempdir: self.tempdir,
@@ -204,6 +239,14 @@ impl Args {
             },
         }))
     }
+}
+
+fn valid_pathspec(value: &str) -> Result<String, String> {
+    let pattern = gix::pathspec::parse(value.as_bytes(), gix::pathspec::Defaults::default())
+        .map_err(|err| err.to_string())?;
+    gix::pathspec::Search::from_specs([pattern], None, std::path::Path::new(""))
+        .map(|_| value.to_owned())
+        .map_err(|err| err.to_string())
 }
 
 /// How deep to recurse, from `--no-recursive` and `--max-depth` (0 = unlimited).

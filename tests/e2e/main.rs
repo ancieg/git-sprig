@@ -27,6 +27,7 @@ mod fetching;
 mod hostile;
 mod interrupts;
 mod planting;
+mod selection;
 mod stage;
 
 use std::path::Path;

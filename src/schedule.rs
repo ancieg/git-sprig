@@ -542,5 +542,6 @@ fn nested(
         destination,
         repo.config_snapshot().plumbing(),
         reporter,
+        None,
     )
 }

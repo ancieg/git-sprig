@@ -64,6 +64,10 @@ pub struct Config {
     pub rev: String,
     /// The submodule base in legacy mode, or the root destination in direct mode.
     pub basedir: PathBuf,
+    /// Top-level submodule paths to include, or all when empty.
+    pub includes: Vec<String>,
+    /// Top-level submodule paths to exclude.
+    pub excludes: Vec<String>,
     /// Base for relative submodule URLs; the source's remote or URL if absent.
     pub remote_url: Option<String>,
     /// `key=value` pairs for the fetches, like `git -c`.

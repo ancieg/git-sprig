@@ -52,7 +52,7 @@ mod tree;
 use std::{io::Write, process::ExitCode};
 
 use anyhow::Result;
-use clap::{CommandFactory, Parser};
+use clap::CommandFactory;
 
 use crate::{cancel::CancelToken, cli::Args, config::Action, report::Reporter};
 

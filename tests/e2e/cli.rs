@@ -36,6 +36,8 @@ fn generates_the_manual_page() {
     assert!(page.contains(".TH "), "{page}");
     assert!(page.contains("\\-\\-stage"), "{page}");
     assert!(page.contains("\\-\\-revision"), "{page}");
+    assert!(page.contains("\\-\\-exclude"), "{page}");
+    assert!(page.contains("pathspec"), "{page}");
     assert!(page.contains("\\-\\-generate\\-completions"), "{page}");
     assert!(page.contains(".SH \"EXIT STATUS\"\n"), "{page}");
     assert!(
@@ -55,6 +57,7 @@ fn generates_completions_for_every_shell() {
         assert!(script.contains(expected), "{shell}:\n{script}");
         assert!(script.contains("stage"), "{shell}:\n{script}");
         assert!(script.contains("revision"), "{shell}:\n{script}");
+        assert!(script.contains("exclude"), "{shell}:\n{script}");
     }
 }
 

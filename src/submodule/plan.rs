@@ -22,6 +22,7 @@ use anyhow::{Context, Result};
 use gix::{ObjectId, Url, bstr::BString};
 
 use crate::{
+    fs,
     name::TreePath,
     report::{self, Reporter},
     submodule::{gitmodules::Modules, url},
@@ -38,7 +39,33 @@ pub struct Planned {
     pub destination: PathBuf,
 }
 
-/// Pair every gitlink with its `.gitmodules` entry and resolve its URL.
+/// Build the root-level selection, or `None` when every submodule is included.
+pub fn selection(
+    includes: &[String],
+    excludes: &[String],
+) -> Result<Option<gix::pathspec::Search>> {
+    if includes.is_empty() && excludes.is_empty() {
+        return Ok(None);
+    }
+    let patterns = includes
+        .iter()
+        .map(|pattern| {
+            gix::pathspec::parse(pattern.as_bytes(), gix::pathspec::Defaults::default())
+                .with_context(|| format!("invalid submodule pathspec {}", report::quoted(pattern)))
+        })
+        .chain(excludes.iter().map(|pattern| {
+            let pattern = format!(":(exclude){pattern}");
+            gix::pathspec::parse(pattern.as_bytes(), gix::pathspec::Defaults::default())
+                .with_context(|| format!("invalid submodule pathspec {}", report::quoted(pattern)))
+        }))
+        .collect::<Result<Vec<_>>>()?;
+    Ok(Some(
+        gix::pathspec::Search::from_specs(patterns, None, Path::new(""))
+            .context("cannot normalize submodule pathspecs")?,
+    ))
+}
+
+/// Pair every selected gitlink with its `.gitmodules` entry and resolve its URL.
 pub fn plan(
     gitlinks: &[Gitlink],
     modules: &Modules,
@@ -46,11 +73,29 @@ pub fn plan(
     basedir: &Path,
     config: &gix::config::File,
     reporter: &Reporter,
+    mut selection: Option<&mut gix::pathspec::Search>,
 ) -> Result<Vec<Planned>> {
     let mut planned = Vec::with_capacity(gitlinks.len());
     for link in gitlinks {
         // The path comes from the validated tree, never from `.gitmodules`.
         let destination = basedir.join(&link.path);
+        if let Some(search) = &mut selection {
+            let selected = search
+                .pattern_matching_relative_path(
+                    fs::path_bytes(link.path.as_path()),
+                    Some(true),
+                    &mut |_, _, _, _| false,
+                )
+                .is_some_and(|matched| !matched.pattern.is_excluded());
+            if !selected {
+                report::detail!(
+                    reporter,
+                    "Skipping submodule {}: not selected",
+                    report::quoted(destination.display())
+                );
+                continue;
+            }
+        }
 
         let Some(entry) = modules.by_path(link.path.as_path()) else {
             report::warning!(

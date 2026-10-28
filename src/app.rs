@@ -147,6 +147,7 @@ fn run_superproject(
     let modules = Modules::from_tree(&repo, tree_id, reporter)
         .context("cannot read .gitmodules of the superproject")?;
     let git_config = repo.config_snapshot();
+    let mut selection = plan::selection(&config.includes, &config.excludes)?;
     let planned = plan::plan(
         &scan.gitlinks,
         &modules,
@@ -154,6 +155,7 @@ fn run_superproject(
         &config.basedir,
         git_config.plumbing(),
         reporter,
+        selection.as_mut(),
     )?;
 
     // Both checked before anything is fetched.
@@ -273,6 +275,7 @@ fn run_direct(
         extracted.streamed
     );
     let planned = plan_direct(
+        config,
         &local,
         tree_id,
         &extracted.scan.gitlinks,
@@ -374,6 +377,7 @@ fn dry_run_direct(
 ) -> Result<()> {
     let scan = tree::scan_tree(repo, tree_id).context("cannot scan the repository")?;
     let planned = plan_direct(
+        config,
         repo,
         tree_id,
         &scan.gitlinks,
@@ -394,6 +398,7 @@ fn dry_run_direct(
 }
 
 fn plan_direct(
+    config: &Config,
     repo: &Repository,
     tree_id: ObjectId,
     gitlinks: &[tree::Gitlink],
@@ -404,6 +409,7 @@ fn plan_direct(
     let modules = Modules::from_tree(repo, tree_id, reporter)
         .context("cannot read .gitmodules of the repository")?;
     let git_config = repo.config_snapshot();
+    let mut selection = plan::selection(&config.includes, &config.excludes)?;
     plan::plan(
         gitlinks,
         &modules,
@@ -411,6 +417,7 @@ fn plan_direct(
         destination,
         git_config.plumbing(),
         reporter,
+        selection.as_mut(),
     )
 }
 

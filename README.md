@@ -128,6 +128,10 @@ $ git config submodule.vendor/libbar.active false
 $ git-sprig
 ```
 
+Submodules that `.gitmodules` marks with `update = none` are skipped as well,
+as `git submodule update` skips them; `-c submodule.<name>.update=checkout`
+brings one back.
+
 **Select top-level submodules** with Git pathspecs. Put includes after `--`, or
 repeat `--exclude` to skip matching paths and globs:
 

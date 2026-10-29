@@ -297,6 +297,48 @@ fn configured_urls_win_over_gitmodules_as_in_git() {
 }
 
 #[test]
+fn submodules_with_update_none_are_skipped_as_in_git() {
+    let fx = Fixture::new();
+    let sup = fx.superproject();
+    let gitmodules = ["config", "--file", ".gitmodules"];
+    git(
+        &sup,
+        &[&gitmodules[..], &["submodule.vendor/child.update", "none"]].concat(),
+    );
+    commit_all(&sup, "leave the child out");
+
+    let out = fx.path("out");
+    let run = plant(&sup, &out, &[]);
+    run.assert_ok();
+    run.assert_says("Skipping submodule 'vendor/child'");
+    assert!(!out.join("vendor/child/hello.txt").exists());
+
+    // Configuration brings it back, as in git.
+    let checkout = "submodule.vendor/child.update=checkout";
+    for (name, run) in [
+        (
+            "out-planted",
+            plant(&sup, &fx.path("out-planted"), &["-c", checkout]),
+        ),
+        (
+            "out-direct",
+            direct(
+                sup.to_str().unwrap(),
+                &fx.path("out-direct"),
+                "HEAD",
+                &["-c", checkout],
+            ),
+        ),
+    ] {
+        run.assert_ok();
+        assert_eq!(
+            read(&fx.path(name).join("vendor/child/hello.txt")),
+            "child\n"
+        );
+    }
+}
+
+#[test]
 fn inactive_submodules_are_skipped() {
     let fx = Fixture::new();
     let sup = fx.superproject();

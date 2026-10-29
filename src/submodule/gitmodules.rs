@@ -36,6 +36,8 @@ pub struct Entry {
     /// Normalized, as the lookup by path uses it.
     pub path: BString,
     pub url: BString,
+    /// `submodule.<name>.update`; `none` keeps git from checking it out.
+    pub update: Option<BString>,
 }
 
 /// Whose `submodule.<name>.*` settings take precedence over `.gitmodules`.
@@ -106,7 +108,15 @@ impl Modules {
             };
             match by_path.entry(path.clone()) {
                 hash_map::Entry::Vacant(slot) => {
-                    slot.insert(Entry { name, path, url });
+                    let update = file
+                        .config()
+                        .string(format!("submodule.{name}.update").as_str());
+                    slot.insert(Entry {
+                        name,
+                        path,
+                        url,
+                        update,
+                    });
                 }
                 hash_map::Entry::Occupied(slot) => report::warning!(
                     reporter,
@@ -125,7 +135,8 @@ impl Modules {
     }
 
     /// Let `config` override `.gitmodules`, as git lets a `submodule.<name>.url`
-    /// that `git submodule init` wrote, or that points at a mirror, win.
+    /// that `git submodule init` wrote, or that points at a mirror, win, and a
+    /// `submodule.<name>.update` bring back a submodule `.gitmodules` leaves out.
     pub fn configure(&mut self, config: &gix::config::File, scope: Scope) {
         let mut in_scope = |meta: &gix::config::file::Metadata| {
             scope == Scope::Repository
@@ -141,6 +152,10 @@ impl Modules {
                 .filter(|url| !url.is_empty())
             {
                 entry.url = url;
+            }
+            let key = format!("submodule.{}.update", entry.name);
+            if let Some(update) = config.string_filter(key.as_str(), &mut in_scope) {
+                entry.update = Some(update);
             }
         }
     }

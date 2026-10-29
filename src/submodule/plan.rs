@@ -123,6 +123,15 @@ pub fn plan(
             );
             continue;
         }
+        // `git submodule update` leaves these out, and says so.
+        if entry.update.as_ref().is_some_and(|update| update == "none") {
+            report::status!(
+                reporter,
+                "Skipping submodule {}",
+                report::quoted(link.path.display())
+            );
+            continue;
+        }
 
         let url = url::resolve_url(entry.url.as_ref(), parent_url).with_context(|| {
             format!(

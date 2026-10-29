@@ -183,6 +183,8 @@ $ git -c http.proxy=http://proxy.example.com:3128 sprig
 | `--work-tree <DIR>` | Where to write submodules without `<REPOSITORY>`. Default: the top of the work tree, wherever in it git-sprig runs; `git --git-dir=… --work-tree=… sprig` works as in git. `-b` and `--basedir` are deprecated names for it. |
 | `[-- <PATHSPEC>...]` | Include only matching top-level submodules. Without includes, every submodule is eligible. |
 | `--exclude <PATHSPEC>` | Exclude matching top-level submodules, including glob patterns. May be repeated. |
+| `--recurse-submodules[=<PATHSPEC>]` | Materialize submodules, as by default, like `git clone --recurse-submodules`; a pathspec limits the top-level ones, as after `--`. |
+| `--no-recurse-submodules` | Export `<REPOSITORY>` alone, without its submodules. |
 | `-j, --jobs <N>` | How many submodules to download at the same time. Default: the number of CPUs, at most 8. |
 | `--no-recursive` | Don't go into submodules of submodules. |
 | `--max-depth <N>` | How many levels of submodules to fetch. Default: 32; 0 means no limit. The direct root does not count as a level. |

@@ -23,7 +23,7 @@ use gix::{ObjectId, Repository, ThreadSafeRepository, Url};
 
 use crate::{
     cancel::CancelToken,
-    config::{Checkouts, Config, Direct, IndexUpdate, Mode, Source},
+    config::{Checkouts, Config, Direct, IndexUpdate, Mode, Source, Submodules},
     fetch::{Ephemeral, Fetcher},
     fs, index,
     report::{self, Reporter},
@@ -553,6 +553,9 @@ fn plan_direct(
     destination: &Path,
     reporter: &Reporter,
 ) -> Result<Vec<Planned>> {
+    if config.submodules == Submodules::Skip {
+        return Ok(Vec::new());
+    }
     let mut modules = Modules::from_tree(repo, tree_id, reporter)
         .context("cannot read .gitmodules of the repository")?;
     let git_config = repo.config_snapshot();

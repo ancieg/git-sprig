@@ -23,7 +23,7 @@ use std::{num::NonZeroUsize, path::PathBuf};
 use clap::{Parser, builder::TypedValueParser};
 
 use crate::{
-    config::{Action, Checkouts, Config, Direct, IndexUpdate, Mode, Source},
+    config::{Action, Checkouts, Config, Direct, IndexUpdate, Mode, Source, Submodules},
     report::Verbosity,
     schedule::Recursion,
     tree::Conversion,
@@ -109,6 +109,23 @@ pub(crate) struct Args {
     /// Write files as stored, without .gitattributes conversion.
     #[arg(long, visible_alias = "no-filters")]
     pub(crate) raw: bool,
+
+    /// Materialize submodules, as by default, like `git clone --recurse-submodules`;
+    /// =PATHSPEC limits the top-level ones and may be repeated.
+    #[arg(
+        long,
+        value_name = "PATHSPEC",
+        num_args = 0..=1,
+        require_equals = true,
+        default_missing_value = "",
+        action = clap::ArgAction::Append,
+        value_parser = recurse_pathspec
+    )]
+    pub(crate) recurse_submodules: Vec<String>,
+
+    /// Materialize the REPOSITORY alone, without its submodules, as `git clone` does.
+    #[arg(long, requires = "repository", conflicts_with = "recurse_submodules")]
+    pub(crate) no_recurse_submodules: bool,
 
     /// Do not recurse into submodules of submodules.
     #[arg(long)]
@@ -206,32 +223,30 @@ impl Args {
         if let Some(shell) = self.generate_completions {
             return Ok(Action::GenerateCompletions(shell));
         }
-        let mut warnings = Vec::new();
+        let mut includes = self.includes;
+        includes.extend(
+            self.recurse_submodules
+                .into_iter()
+                .filter(|pattern| !pattern.is_empty()),
+        );
+        if self.no_recurse_submodules && !(includes.is_empty() && self.excludes.is_empty()) {
+            return Err(conflict(
+                "--no-recurse-submodules leaves every submodule out, so pathspecs cannot select any",
+            ));
+        }
         let mut revision = self.revision;
         let mut basedir = self.basedir;
         match (self.short_b, self.repository.is_some()) {
             (Some(_), true) if revision.is_some() => {
-                return Err(clap::Error::raw(
-                    clap::error::ErrorKind::ArgumentConflict,
-                    "-b is short for --branch and cannot be combined with --branch or --revision\n",
-                )
-                .into());
+                return Err(conflict(
+                    "-b is short for --branch and cannot be combined with --branch or --revision",
+                ));
             }
             (Some(branch), true) => revision = Some(branch),
             (Some(dir), false) => basedir = Some(PathBuf::from(dir)),
             (None, _) => {}
         }
-        if basedir.is_some() {
-            warnings.push(
-                "-b and --basedir for the work tree are deprecated; use --work-tree, as -b will \
-                 mean --branch as in git clone"
-                    .to_owned(),
-            );
-        }
-        if self.repo.is_some() {
-            warnings
-                .push("--repo is deprecated; use -C, which changes directory as in git".to_owned());
-        }
+        let warnings = deprecations(basedir.is_some(), self.repo.is_some());
         let source = match self.repository {
             Some(from) => Source::Direct(Direct {
                 from,
@@ -250,7 +265,7 @@ impl Args {
             chdir: self.chdir.into_iter().chain(self.repo).collect(),
             warnings,
             rev: revision.unwrap_or_else(|| "HEAD".to_owned()),
-            includes: self.includes,
+            includes,
             excludes: self.excludes,
             remote_url: self.remote_url,
             overrides,
@@ -258,6 +273,11 @@ impl Args {
             // clap keeps --jobs in 1..=u16::MAX, so it is never zero.
             jobs: NonZeroUsize::new(usize::from(self.jobs)).unwrap_or(NonZeroUsize::MIN),
             recursion: recursion(self.no_recursive, self.max_depth),
+            submodules: if self.no_recurse_submodules {
+                Submodules::Skip
+            } else {
+                Submodules::Include
+            },
             conversion: if self.raw {
                 Conversion::Raw
             } else {
@@ -298,6 +318,40 @@ fn destination(path: &std::path::Path) -> Result<PathBuf, String> {
         return Err("the destination is replaced as a whole and must end in a name".to_owned());
     }
     Ok(path)
+}
+
+/// A combination of options that only some modes refuse, so clap cannot.
+fn conflict(message: &str) -> anyhow::Error {
+    clap::Error::raw(
+        clap::error::ErrorKind::ArgumentConflict,
+        format!("{message}\n"),
+    )
+    .into()
+}
+
+/// Warnings for the spellings that are on their way out.
+fn deprecations(basedir: bool, repo: bool) -> Vec<String> {
+    let mut warnings = Vec::new();
+    if basedir {
+        warnings.push(
+            "-b and --basedir for the work tree are deprecated; use --work-tree, as -b will mean \
+             --branch as in git clone"
+                .to_owned(),
+        );
+    }
+    if repo {
+        warnings.push("--repo is deprecated; use -C, which changes directory as in git".to_owned());
+    }
+    warnings
+}
+
+/// `--recurse-submodules` without a pathspec selects nothing in particular.
+fn recurse_pathspec(value: &str) -> Result<String, String> {
+    if value.is_empty() {
+        Ok(String::new())
+    } else {
+        valid_pathspec(value)
+    }
 }
 
 /// Only parsed here: a pattern is normalized once it is known where in the

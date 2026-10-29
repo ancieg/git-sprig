@@ -45,6 +45,13 @@ pub enum IndexUpdate {
     Stage,
 }
 
+/// Whether a direct export takes the repository's submodules along.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Submodules {
+    Include,
+    Skip,
+}
+
 /// Whether to do the work or only say what it would be.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -85,6 +92,7 @@ pub struct Config {
     pub tempdir: Option<PathBuf>,
     pub jobs: NonZeroUsize,
     pub recursion: Recursion,
+    pub submodules: Submodules,
     pub conversion: Conversion,
     pub checkouts: Checkouts,
     pub index: IndexUpdate,

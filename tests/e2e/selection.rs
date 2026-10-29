@@ -151,6 +151,35 @@ fn runs_from_a_subdirectory_like_git() {
 }
 
 #[test]
+fn recurse_submodules_works_as_in_git_clone() {
+    let fx = two_top_levels();
+    let sup = fx.superproject();
+    let source = sup.to_str().unwrap();
+
+    let out = fx.path("only-child");
+    direct(source, &out, "HEAD", &["--recurse-submodules=vendor/child"]).assert_ok();
+    assert_selected_child(&out);
+
+    let out = fx.path("all");
+    direct(source, &out, "HEAD", &["--recurse-submodules"]).assert_ok();
+    assert_eq!(read(&out.join("vendor/grand/g.txt")), "grandchild\n");
+
+    let out = fx.path("none");
+    let run = direct(source, &out, "HEAD", &["--no-recurse-submodules"]);
+    run.assert_ok();
+    run.assert_silent_about("Fetching submodule");
+    assert_eq!(read(&out.join("super.txt")), "superproject\n");
+    assert!(out.join("vendor/child").is_dir());
+    assert!(!out.join("vendor/child/hello.txt").exists());
+
+    // Pathspecs cannot pick from nothing, and only a repository goes without.
+    let none = ["--no-recurse-submodules", "--", "vendor/child"];
+    direct(source, &fx.path("both"), "HEAD", &none).assert_code(129);
+    plant(&sup, &fx.path("planted"), &["--no-recurse-submodules"]).assert_code(129);
+    assert!(!fx.path("both").exists());
+}
+
+#[test]
 fn a_bare_superproject_needs_a_directory_to_write_into() {
     let fx = Fixture::new();
     let bare = fx.path("bare.git");

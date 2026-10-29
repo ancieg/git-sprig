@@ -177,21 +177,23 @@ fn max_depth_limits_the_nesting() {
 fn dry_run_touches_nothing() {
     let fx = Fixture::new();
     let out = fx.path("out");
-    let run = plant(&fx.superproject(), &out, &["--dry-run"]);
-    run.assert_ok();
-    assert!(!out.exists());
-    assert!(
-        run.stderr
-            .contains("Would fetch submodule 'vendor/child' from '"),
-        "{}",
-        run.stderr
-    );
-    assert!(
-        run.stderr
-            .contains("hint: nested submodules are only found once their parents are fetched"),
-        "{}",
-        run.stderr
-    );
+    for flag in ["--dry-run", "-n"] {
+        let run = plant(&fx.superproject(), &out, &[flag]);
+        run.assert_ok();
+        assert!(!out.exists());
+        assert!(
+            run.stderr
+                .contains("Would fetch submodule 'vendor/child' from '"),
+            "{}",
+            run.stderr
+        );
+        assert!(
+            run.stderr
+                .contains("hint: nested submodules are only found once their parents are fetched"),
+            "{}",
+            run.stderr
+        );
+    }
 }
 
 #[test]
@@ -364,7 +366,7 @@ fn refuses_to_replace_a_submodule_checkout_without_force() {
     assert_eq!(read(&checkout.join("wip.txt")), "uncommitted");
     assert!(checkout.join(".git").exists());
 
-    let run = plant(&sup, &sup, &["--force"]);
+    let run = plant(&sup, &sup, &["-f"]);
     run.assert_ok();
     assert_eq!(read(&checkout.join("hello.txt")), "child\n");
     assert!(!checkout.join("wip.txt").exists());

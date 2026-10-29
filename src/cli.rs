@@ -86,7 +86,7 @@ pub(crate) struct Args {
     pub(crate) excludes: Vec<String>,
 
     /// Replace destinations that are or contain git checkouts, discarding work in them.
-    #[arg(long)]
+    #[arg(short, long)]
     pub(crate) force: bool,
 
     /// Replace the submodules in the superproject's index with their files, ready to commit.
@@ -128,7 +128,7 @@ pub(crate) struct Args {
     pub(crate) jobs: u16,
 
     /// Show what would be fetched without changing anything.
-    #[arg(long)]
+    #[arg(short = 'n', long)]
     pub(crate) dry_run: bool,
 
     /// Only print errors.

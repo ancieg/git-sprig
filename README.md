@@ -172,10 +172,10 @@ $ git-sprig -c http.proxy=http://proxy.example.com:3128
 | `--remote-url <URL>` | Where relative submodule URLs are resolved from. |
 | `-c, --config <KEY=VALUE>` | A git setting for the downloads, like `git -c`. |
 | `--raw` | Write files exactly as stored, without converting line endings. |
-| `--force` | Replace destinations even if they are or contain git checkouts. |
+| `-f, --force` | Replace destinations even if they are or contain git checkouts. |
 | `--stage` | Replace the submodules in the project's index with their files, ready to commit. |
 | `--tempdir <DIR>` | Where to keep downloads while working. |
-| `--dry-run` | Show what would be fetched and stop without changing the destination. |
+| `-n, --dry-run` | Show what would be fetched and stop without changing the destination. |
 | `-q, --quiet` | Print only errors. |
 | `-v, --verbose` | Print more about each repository and submodule. |
 | `--generate-man` | Print the manual page and exit. |

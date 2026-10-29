@@ -20,7 +20,7 @@
 
 use std::path::Path;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use gix::{ObjectId, Repository, ThreadSafeRepository, Url};
 
 use super::{available_cpus, jobs, report_dry_run, schedule_options};
@@ -53,11 +53,12 @@ impl RootRepository {
     }
 }
 
-struct DirectSource {
+/// The repository exported, at the commit asked for.
+struct Root {
     repository: RootRepository,
     commit: ObjectId,
+    /// Where relative submodule URLs start.
     base_url: Url,
-    fetcher: Option<Fetcher>,
 }
 
 pub(super) fn run(
@@ -66,41 +67,169 @@ pub(super) fn run(
     reporter: &Reporter,
     cancel: &CancelToken,
 ) -> Result<()> {
-    let Direct { from, into } = direct;
     // Patterns are relative to the root here; check them before anything is fetched.
     plan::selection(&config.includes, &config.excludes, None)?;
     if config.checkouts == Checkouts::Refuse {
-        protect::refuse_holding_checkouts(into)?;
+        protect::refuse_holding_checkouts(&direct.into)?;
     }
-    let source = open(config, direct, reporter, cancel)?;
-    let repo = source.repository.repo();
-    let local = repo.to_thread_local();
-    let tree_id = local
-        .find_commit(source.commit)
-        .context("cannot read the resolved commit")?
-        .tree_id()
-        .context("cannot read the repository tree")?
-        .detach();
+    let remote_url = config
+        .remote_url
+        .as_ref()
+        .map(|url| {
+            gix::url::parse(gix::bstr::BStr::new(url.as_str())).with_context(|| {
+                format!(
+                    "--remote-url {} is not a valid git URL",
+                    report::quoted(url)
+                )
+            })
+        })
+        .transpose()?;
+
+    if Path::new(&direct.from).exists() {
+        // Read where it is; only its submodules need temporary storage.
+        let root = open_local(config, direct, remote_url, reporter)?;
+        match config.mode {
+            Mode::DryRun => dry_run(config, direct, &root, reporter),
+            Mode::Plant => {
+                let fetcher = new_fetcher(config, cancel)?;
+                plant(config, direct, &root, &fetcher, reporter, cancel)
+            }
+        }
+    } else {
+        // Fetched even for a dry run, to see what it holds. The fetcher is
+        // dropped last, as the fetched root lives in its storage.
+        let fetcher = new_fetcher(config, cancel)?;
+        let root = open_remote(config, direct, remote_url, &fetcher, reporter)?;
+        match config.mode {
+            Mode::DryRun => dry_run(config, direct, &root, reporter),
+            Mode::Plant => plant(config, direct, &root, &fetcher, reporter, cancel),
+        }
+    }
+}
+
+fn new_fetcher(config: &Config, cancel: &CancelToken) -> Result<Fetcher> {
+    Fetcher::new(config.tempdir.clone(), config.overrides.clone(), cancel)
+        .context("cannot create temporary storage")
+}
+
+fn open_local(
+    config: &Config,
+    direct: &Direct,
+    remote_url: Option<Url>,
+    reporter: &Reporter,
+) -> Result<Root> {
+    let repo = repo::discover(Path::new(&direct.from), &config.overrides)?;
+    if config.checkouts == Checkouts::Refuse {
+        protect::refuse_enclosing_destination(&direct.into, &repo)?;
+    }
+    let commit = repo::resolve_commit_id(&repo, config.direct_rev())?;
+    let base_url = match remote_url {
+        Some(url) => url,
+        None => repo::local_url(&repo)?,
+    };
+    resolved(config, direct, commit, reporter);
+    Ok(Root {
+        repository: RootRepository::Local(repo.into_sync()),
+        commit,
+        base_url,
+    })
+}
+
+fn open_remote(
+    config: &Config,
+    direct: &Direct,
+    remote_url: Option<Url>,
+    fetcher: &Fetcher,
+    reporter: &Reporter,
+) -> Result<Root> {
+    let from = &direct.from;
+    let url = gix::url::parse(gix::bstr::BStr::new(from)).with_context(|| {
+        format!(
+            "source repository {} is not a valid git URL or path",
+            report::quoted(from)
+        )
+    })?;
+    let (repo, commit, strategy) = fetcher
+        .fetch_revision(&url, config.direct_rev(), reporter)
+        .with_context(|| {
+            format!(
+                "cannot fetch revision {} from {}",
+                report::quoted(config.direct_rev()),
+                report::quoted(from)
+            )
+        })?;
+    report::detail!(
+        reporter,
+        "Repository {}: fetched {strategy}",
+        report::quoted(from)
+    );
+    resolved(config, direct, commit, reporter);
+    Ok(Root {
+        repository: RootRepository::Remote(repo),
+        commit,
+        base_url: remote_url.unwrap_or(url),
+    })
+}
+
+fn resolved(config: &Config, direct: &Direct, commit: ObjectId, reporter: &Reporter) {
     report::status!(
         reporter,
         "Revision {} of {} resolved to {}",
         report::quoted(config.direct_rev()),
-        report::quoted(from),
-        report::quoted(source.commit)
+        report::quoted(&direct.from),
+        report::quoted(commit)
     );
+}
 
-    if config.mode == Mode::DryRun {
-        return dry_run(
-            config,
-            direct,
-            &local,
-            tree_id,
-            source.commit,
-            &source.base_url,
-            reporter,
-        );
-    }
+fn tree_of(repo: &Repository, commit: ObjectId) -> Result<ObjectId> {
+    Ok(repo
+        .find_commit(commit)
+        .context("cannot read the resolved commit")?
+        .tree_id()
+        .context("cannot read the repository tree")?
+        .detach())
+}
 
+fn dry_run(config: &Config, direct: &Direct, root: &Root, reporter: &Reporter) -> Result<()> {
+    let Direct { from, into } = direct;
+    let repo = root.repository.repo().to_thread_local();
+    let tree_id = tree_of(&repo, root.commit)?;
+    let scan = tree::scan_tree(&repo, tree_id).context("cannot scan the repository")?;
+    let planned = plan_submodules(
+        config,
+        &repo,
+        tree_id,
+        &scan.gitlinks,
+        &root.base_url,
+        into,
+        reporter,
+    )?;
+    report::status!(
+        reporter,
+        "Would materialize repository {} at revision {} ({}) into {}",
+        report::quoted(from),
+        report::quoted(config.direct_rev()),
+        report::quoted(root.commit),
+        report::quoted(into.display())
+    );
+    report_dry_run(&planned, IndexUpdate::Leave, config.recursion, reporter);
+    Ok(())
+}
+
+/// Write the root's tree and its submodules into a snapshot, and swap it in
+/// for the destination once all of it is done.
+fn plant(
+    config: &Config,
+    direct: &Direct,
+    root: &Root,
+    fetcher: &Fetcher,
+    reporter: &Reporter,
+    cancel: &CancelToken,
+) -> Result<()> {
+    let Direct { from, into } = direct;
+    let repo = root.repository.repo();
+    let local = repo.to_thread_local();
+    let tree_id = tree_of(&local, root.commit)?;
     let snapshot = Snapshot::new(into, cancel)?;
     let extracted = tree::extract_tree(
         repo,
@@ -128,7 +257,7 @@ pub(super) fn run(
         &local,
         tree_id,
         &extracted.scan.gitlinks,
-        &source.base_url,
+        &root.base_url,
         snapshot.path(),
         reporter,
     )?;
@@ -139,10 +268,6 @@ pub(super) fn run(
     );
     drop(local);
 
-    let fetcher = source
-        .fetcher
-        .as_ref()
-        .ok_or_else(|| anyhow!("temporary storage was not initialized"))?;
     schedule::run(
         planned,
         snapshot.path(),
@@ -156,114 +281,8 @@ pub(super) fn run(
         reporter,
         "Repository path {}: planted {}",
         report::quoted(into.display()),
-        report::quoted(source.commit)
+        report::quoted(root.commit)
     );
-    Ok(())
-}
-
-fn open(
-    config: &Config,
-    direct: &Direct,
-    reporter: &Reporter,
-    cancel: &CancelToken,
-) -> Result<DirectSource> {
-    let Direct { from, into } = direct;
-    let root_url = gix::url::parse(gix::bstr::BStr::new(from)).with_context(|| {
-        format!(
-            "source repository {} is not a valid git URL or path",
-            report::quoted(from)
-        )
-    })?;
-    let remote_url = config
-        .remote_url
-        .as_ref()
-        .map(|url| {
-            gix::url::parse(gix::bstr::BStr::new(url.as_str())).with_context(|| {
-                format!(
-                    "--remote-url {} is not a valid git URL",
-                    report::quoted(url)
-                )
-            })
-        })
-        .transpose()?;
-
-    let local_source = Path::new(from).exists();
-    let fetcher = (config.mode == Mode::Plant || !local_source)
-        .then(|| Fetcher::new(config.tempdir.clone(), config.overrides.clone(), cancel))
-        .transpose()
-        .context("cannot create temporary storage")?;
-    let (repository, commit, base_url) = if local_source {
-        let repo = repo::discover(Path::new(from), &config.overrides)?;
-        if config.checkouts == Checkouts::Refuse {
-            protect::refuse_enclosing_destination(into, &repo)?;
-        }
-        let commit = repo::resolve_commit_id(&repo, config.direct_rev())?;
-        let base_url = match remote_url {
-            Some(url) => url,
-            None => repo::local_url(&repo)?,
-        };
-        (RootRepository::Local(repo.into_sync()), commit, base_url)
-    } else {
-        let fetch = fetcher
-            .as_ref()
-            .ok_or_else(|| anyhow!("temporary storage was not initialized"))?;
-        let (repo, commit, strategy) = fetch
-            .fetch_revision(&root_url, config.direct_rev(), reporter)
-            .with_context(|| {
-                format!(
-                    "cannot fetch revision {} from {}",
-                    report::quoted(config.direct_rev()),
-                    report::quoted(from)
-                )
-            })?;
-        report::detail!(
-            reporter,
-            "Repository {}: fetched {strategy}",
-            report::quoted(from)
-        );
-        (
-            RootRepository::Remote(repo),
-            commit,
-            remote_url.unwrap_or(root_url),
-        )
-    };
-    Ok(DirectSource {
-        repository,
-        commit,
-        base_url,
-        fetcher,
-    })
-}
-
-fn dry_run(
-    config: &Config,
-    direct: &Direct,
-    repo: &Repository,
-    tree_id: ObjectId,
-    commit: ObjectId,
-    base_url: &Url,
-    reporter: &Reporter,
-) -> Result<()> {
-    let Direct { from, into } = direct;
-    let scan = tree::scan_tree(repo, tree_id).context("cannot scan the repository")?;
-    let planned = plan_submodules(
-        config,
-        repo,
-        tree_id,
-        &scan.gitlinks,
-        base_url,
-        into,
-        reporter,
-    )?;
-    report::status!(
-        reporter,
-        "Would materialize repository {} at revision {} ({}) into {}",
-        report::quoted(from),
-        report::quoted(config.direct_rev()),
-        report::quoted(commit),
-        report::quoted(into.display())
-    );
-    report_dry_run(&planned, IndexUpdate::Leave, config.recursion, reporter);
     Ok(())
 }
 

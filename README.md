@@ -92,7 +92,7 @@ $ tar -czf project-1.4.0.tar.gz project-1.4.0
 ```
 
 **Commit a snapshot of the submodules** into the project itself, as ordinary
-files. Run this at the top of the project's work tree:
+files, from anywhere in the project's work tree:
 
 ```console
 $ git-sprig --stage

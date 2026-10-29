@@ -52,16 +52,11 @@ pub(crate) struct Args {
     #[arg(short = 'C', value_name = "DIR", action = clap::ArgAction::Append)]
     pub(crate) chdir: Vec<PathBuf>,
 
-    /// The former name of -C, which now changes directory as git does.
-    #[arg(long, value_name = "DIR", hide = true, conflicts_with = "chdir")]
-    pub(crate) repo: Option<PathBuf>,
-
     /// Local or remote repository to materialize completely.
     #[arg(
         value_name = "REPOSITORY",
         requires = "directory",
         conflicts_with = "stage",
-        conflicts_with = "basedir",
         conflicts_with = "work_tree"
     )]
     pub(crate) repository: Option<String>,
@@ -79,21 +74,18 @@ pub(crate) struct Args {
 
     /// Commit, branch or tag to use [default: the index, as for `git submodule update`,
     /// or HEAD of a REPOSITORY].
-    #[arg(long, alias = "rev", visible_alias = "branch", value_name = "REV")]
+    #[arg(
+        short = 'b',
+        long,
+        alias = "rev",
+        visible_alias = "branch",
+        value_name = "REV"
+    )]
     pub(crate) revision: Option<String>,
-
-    /// Short for --branch, as in `git clone`; without a REPOSITORY, still the
-    /// deprecated short form of --work-tree.
-    #[arg(short = 'b', value_name = "BRANCH", conflicts_with_all = ["work_tree", "basedir"])]
-    pub(crate) short_b: Option<String>,
 
     /// Where submodule paths start in submodule-only mode (default: the top of the work tree).
     #[arg(long = "work-tree", value_name = "DIR")]
     pub(crate) work_tree: Option<PathBuf>,
-
-    /// The former name of --work-tree.
-    #[arg(long, value_name = "DIR", hide = true, conflicts_with = "work_tree")]
-    pub(crate) basedir: Option<PathBuf>,
 
     /// Top-level submodule pathspec to exclude; may be repeated.
     #[arg(long = "exclude", value_name = "PATHSPEC", value_parser = valid_pathspec)]
@@ -224,19 +216,6 @@ impl Args {
                 "--no-recurse-submodules leaves every submodule out, so pathspecs cannot select any",
             ));
         }
-        let mut revision = self.revision;
-        let mut basedir = self.basedir;
-        match (self.short_b, self.repository.is_some()) {
-            (Some(_), true) if revision.is_some() => {
-                return Err(conflict(
-                    "-b is short for --branch and cannot be combined with --branch or --revision",
-                ));
-            }
-            (Some(branch), true) => revision = Some(branch),
-            (Some(dir), false) => basedir = Some(PathBuf::from(dir)),
-            (None, _) => {}
-        }
-        let warnings = deprecations(basedir.is_some(), self.repo.is_some());
         let source = match self.repository {
             Some(from) => Source::Direct(Direct {
                 from,
@@ -244,7 +223,7 @@ impl Args {
                 into: self.directory.unwrap_or_default(),
             }),
             None => Source::Superproject {
-                work_tree: self.work_tree.or(basedir),
+                work_tree: self.work_tree,
             },
         };
         // Those from `git -c` come first, so that our own -c wins, as in git.
@@ -252,9 +231,8 @@ impl Args {
         overrides.extend(self.config);
         Ok(Action::Plant(Box::new(Config {
             source,
-            chdir: self.chdir.into_iter().chain(self.repo).collect(),
-            warnings,
-            rev: revision,
+            chdir: self.chdir,
+            rev: self.revision,
             includes,
             excludes: self.excludes,
             remote_url: self.remote_url,
@@ -309,29 +287,13 @@ fn destination(path: &std::path::Path) -> Result<PathBuf, String> {
     Ok(path)
 }
 
-/// A combination of options that only some modes refuse, so clap cannot.
+/// A conflict clap cannot see, since pathspecs after `--` never reach it.
 fn conflict(message: &str) -> anyhow::Error {
     clap::Error::raw(
         clap::error::ErrorKind::ArgumentConflict,
         format!("{message}\n"),
     )
     .into()
-}
-
-/// Warnings for the spellings that are on their way out.
-fn deprecations(basedir: bool, repo: bool) -> Vec<String> {
-    let mut warnings = Vec::new();
-    if basedir {
-        warnings.push(
-            "-b and --basedir for the work tree are deprecated; use --work-tree, as -b will mean \
-             --branch as in git clone"
-                .to_owned(),
-        );
-    }
-    if repo {
-        warnings.push("--repo is deprecated; use -C, which changes directory as in git".to_owned());
-    }
-    warnings
 }
 
 /// `--recurse-submodules` without a pathspec selects nothing in particular.

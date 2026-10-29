@@ -73,7 +73,7 @@ fn main() -> ExitCode {
     };
     let action = match args.into_action() {
         Ok(action) => action,
-        // Some combinations are only wrong in one mode, which clap cannot tell.
+        // Conflicts that involve pathspecs after --, which clap never sees.
         Err(err) => match err.downcast::<clap::Error>() {
             Ok(usage) => {
                 usage.print().ok();

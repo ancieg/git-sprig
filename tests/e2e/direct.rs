@@ -151,7 +151,7 @@ fn dash_b_names_the_branch_as_in_git_clone() {
         "HEAD",
     ]);
     run.assert_code(129);
-    run.assert_says("-b is short for --branch");
+    run.assert_says("--revision");
     assert!(!out.exists());
 }
 

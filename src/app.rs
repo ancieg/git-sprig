@@ -114,9 +114,6 @@ impl RootRepository {
 
 pub(crate) fn run(config: &Config, reporter: &Reporter, cancel: &CancelToken) -> Result<()> {
     cancel.install_handler()?;
-    for warning in &config.warnings {
-        report::warning!(reporter, "{warning}");
-    }
     // Like `git -C`, so every relative path given is taken from there.
     for dir in &config.chdir {
         std::env::set_current_dir(dir)

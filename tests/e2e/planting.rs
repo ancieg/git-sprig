@@ -193,10 +193,6 @@ fn dash_c_changes_directory_as_in_git() {
     // In direct mode too, as `git -C <dir> clone` would.
     run_in(root, &["-C", "remotes", "super", "../direct"]).assert_ok();
     assert_eq!(read(&fx.path("direct/super.txt")), "superproject\n");
-
-    let run = run_in(root, &["--repo", "clone", "-n"]);
-    run.assert_ok();
-    run.assert_says("--repo is deprecated");
 }
 
 #[test]
@@ -279,15 +275,19 @@ fn git_dir_and_work_tree_given_to_git_are_honored() {
 }
 
 #[test]
-fn the_former_basedir_still_works_with_a_warning() {
+fn dash_b_names_the_revision_and_the_former_names_are_gone() {
     let fx = Fixture::new();
     let sup = fx.superproject();
-    for (index, flag) in ["-b", "--basedir"].into_iter().enumerate() {
-        let out = fx.path(&format!("out-{index}"));
-        let run = run(&["-C", sup.to_str().unwrap(), flag, out.to_str().unwrap()]);
-        run.assert_ok();
-        run.assert_says("deprecated; use --work-tree");
-        assert_eq!(read(&out.join("vendor/child/hello.txt")), "child\n");
+    let out = fx.path("out");
+    plant(&sup, &out, &["-b", "main"]).assert_ok();
+    assert_eq!(read(&out.join("vendor/child/hello.txt")), "child\n");
+
+    let (sup, out) = (sup.to_str().unwrap(), out.to_str().unwrap());
+    for args in [
+        ["-C", sup, "--basedir", out],
+        ["--repo", sup, "--work-tree", out],
+    ] {
+        run(&args).assert_code(129);
     }
 }
 

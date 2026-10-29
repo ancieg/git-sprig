@@ -58,7 +58,8 @@ pub(crate) struct Args {
         requires = "directory",
         conflicts_with = "repo",
         conflicts_with = "stage",
-        conflicts_with = "basedir"
+        conflicts_with = "basedir",
+        conflicts_with = "work_tree"
     )]
     pub(crate) repository: Option<String>,
 
@@ -78,7 +79,17 @@ pub(crate) struct Args {
     pub(crate) revision: String,
 
     /// Where submodule paths start in submodule-only mode (default: the top of the work tree).
-    #[arg(short, long, value_name = "DIR")]
+    #[arg(long = "work-tree", value_name = "DIR")]
+    pub(crate) work_tree: Option<PathBuf>,
+
+    /// The former name of --work-tree.
+    #[arg(
+        short = 'b',
+        long,
+        value_name = "DIR",
+        hide = true,
+        conflicts_with = "work_tree"
+    )]
     pub(crate) basedir: Option<PathBuf>,
 
     /// Top-level submodule pathspec to exclude; may be repeated.
@@ -193,6 +204,10 @@ impl Args {
         if let Some(shell) = self.generate_completions {
             return Ok(Action::GenerateCompletions(shell));
         }
+        let mut warnings = Vec::new();
+        if self.basedir.is_some() {
+            warnings.push("-b and --basedir are deprecated; use --work-tree".to_owned());
+        }
         let source = match self.repository {
             Some(from) => Source::Direct(Direct {
                 from,
@@ -201,7 +216,7 @@ impl Args {
             }),
             None => Source::Superproject {
                 repo: self.repo,
-                work_tree: self.basedir,
+                work_tree: self.work_tree.or(self.basedir),
             },
         };
         // Those from `git -c` come first, so that our own -c wins, as in git.
@@ -209,6 +224,7 @@ impl Args {
         overrides.extend(self.config);
         Ok(Action::Plant(Box::new(Config {
             source,
+            warnings,
             rev: self.revision,
             includes: self.includes,
             excludes: self.excludes,

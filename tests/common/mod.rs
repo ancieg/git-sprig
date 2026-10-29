@@ -274,7 +274,12 @@ pub fn run_in(dir: &Path, args: &[&str]) -> Run {
 
 /// Run git-sprig on the superproject `repo`, writing to `out`.
 pub fn plant(repo: &Path, out: &Path, extra: &[&str]) -> Run {
-    let mut args = vec!["-C", repo.to_str().unwrap(), "-b", out.to_str().unwrap()];
+    let mut args = vec![
+        "-C",
+        repo.to_str().unwrap(),
+        "--work-tree",
+        out.to_str().unwrap(),
+    ];
     args.extend(extra);
     run(&args)
 }

@@ -177,10 +177,10 @@ $ git -c http.proxy=http://proxy.example.com:3128 sprig
 
 | Option | What it does |
 |---|---|
-| `<REPOSITORY> <DIRECTORY>` | Materialize the complete root tree of a local or remote repository into the required destination. Cannot be combined with `-C`, `--basedir`, or `--stage`. |
+| `<REPOSITORY> <DIRECTORY>` | Materialize the complete root tree of a local or remote repository into the required destination. Cannot be combined with `-C`, `--work-tree`, or `--stage`. |
 | `-C, --repo <DIR>` | The project to read submodules from. Default: the current directory. |
 | `--revision <REV>` | Which commit, branch or tag of the source to use. Default: `HEAD`. `--rev` is a compatibility alias. |
-| `-b, --basedir <DIR>` | Where to write submodules in `-C` mode. Default: the top of the work tree, wherever in it git-sprig runs. |
+| `--work-tree <DIR>` | Where to write submodules in `-C` mode. Default: the top of the work tree, wherever in it git-sprig runs. `-b` and `--basedir` are deprecated names for it. |
 | `[-- <PATHSPEC>...]` | Include only matching top-level submodules. Without includes, every submodule is eligible. |
 | `--exclude <PATHSPEC>` | Exclude matching top-level submodules, including glob patterns. May be repeated. |
 | `-j, --jobs <N>` | How many submodules to download at the same time. Default: the number of CPUs, at most 8. |

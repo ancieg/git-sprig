@@ -89,4 +89,6 @@ pub struct Config {
     pub index: IndexUpdate,
     pub mode: Mode,
     pub verbosity: Verbosity,
+    /// About the command line, such as deprecated options; printed first.
+    pub warnings: Vec<String>,
 }

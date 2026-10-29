@@ -236,7 +236,7 @@ fn falls_back_when_the_server_sends_a_different_commit() {
     let output = git_sprig(&[
         "-C",
         sup.to_str().unwrap(),
-        "-b",
+        "--work-tree",
         out.to_str().unwrap(),
         "-v",
         "--no-recursive",
@@ -397,12 +397,22 @@ fn inactive_submodules_are_skipped() {
     let off = child_active("false");
     let run = through_git(
         fx.root.path(),
-        &["-c", &off, "sprig", "-C", sup, "-b", out, "-v"],
+        &["-c", &off, "sprig", "-C", sup, "--work-tree", out, "-v"],
     );
     run.assert_ok();
     run.assert_says("vendor/child': not active");
     let on = child_active("true");
-    let args = ["-c", &off, "sprig", "-C", sup, "-b", out, "-c", &on];
+    let args = [
+        "-c",
+        &off,
+        "sprig",
+        "-C",
+        sup,
+        "--work-tree",
+        out,
+        "-c",
+        &on,
+    ];
     through_git(fx.root.path(), &args).assert_ok();
     assert_eq!(
         read(&fx.path("out-through-git/vendor/child/hello.txt")),

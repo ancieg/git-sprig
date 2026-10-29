@@ -40,7 +40,7 @@ fn an_interrupt_cleans_up_and_keeps_the_previous_snapshot() {
     let mut child = git_sprig(&[
         "-C",
         sup.to_str().unwrap(),
-        "-b",
+        "--work-tree",
         out.to_str().unwrap(),
         "--tempdir",
         tmp.to_str().unwrap(),
@@ -103,7 +103,7 @@ fn an_interrupt_during_a_stuck_fetch_still_cleans_up() {
     let mut child = git_sprig(&[
         "-C",
         fx.superproject().to_str().unwrap(),
-        "-b",
+        "--work-tree",
         out.to_str().unwrap(),
         "--tempdir",
         tmp.to_str().unwrap(),
@@ -180,7 +180,7 @@ fn a_second_interrupt_still_cleans_up() {
     let mut child = git_sprig(&[
         "-C",
         fx.superproject().to_str().unwrap(),
-        "-b",
+        "--work-tree",
         out.to_str().unwrap(),
         "--tempdir",
         tmp.to_str().unwrap(),

@@ -184,6 +184,6 @@ fn stage_needs_the_work_tree_as_basedir() {
 
     let run = plant(&clone, &out, &["--stage"]);
     run.assert_failed();
-    run.assert_says("--basedir");
+    run.assert_says("--work-tree");
     assert!(!out.exists(), "fetched before refusing");
 }

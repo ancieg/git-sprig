@@ -92,6 +92,9 @@ impl RootRepository {
 
 pub(crate) fn run(config: &Config, reporter: &Reporter, cancel: &CancelToken) -> Result<()> {
     cancel.install_handler()?;
+    for warning in &config.warnings {
+        report::warning!(reporter, "{warning}");
+    }
     match &config.source {
         Source::Superproject { repo, work_tree } => {
             run_superproject(config, repo, work_tree.as_deref(), reporter, cancel)
@@ -132,7 +135,7 @@ fn run_superproject(
         None => repo.workdir().map(Path::to_owned).ok_or_else(|| {
             anyhow!(
                 "{} is a bare repository, which has no work tree to write submodules into; \
-                 pass --basedir",
+                 pass --work-tree",
                 report::quoted(repo.git_dir().display())
             )
         })?,

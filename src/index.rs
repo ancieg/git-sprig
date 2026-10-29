@@ -58,7 +58,7 @@ pub fn work_tree(repo: &Repository, basedir: &Path) -> Result<PathBuf> {
     if basedir.canonicalize().ok().as_ref() != Some(&work_tree) {
         bail!(
             "--stage changes the superproject's index, so the submodules have to be written \
-             into its work tree: run from {} or pass --basedir {}",
+             into its work tree: run from {} or pass --work-tree {}",
             report::quoted(work_tree.display()),
             report::quoted(work_tree.display())
         );

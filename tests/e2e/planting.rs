@@ -174,6 +174,19 @@ fn max_depth_limits_the_nesting() {
 }
 
 #[test]
+fn the_former_basedir_still_works_with_a_warning() {
+    let fx = Fixture::new();
+    let sup = fx.superproject();
+    for (index, flag) in ["-b", "--basedir"].into_iter().enumerate() {
+        let out = fx.path(&format!("out-{index}"));
+        let run = run(&["-C", sup.to_str().unwrap(), flag, out.to_str().unwrap()]);
+        run.assert_ok();
+        run.assert_says("warning: -b and --basedir are deprecated; use --work-tree");
+        assert_eq!(read(&out.join("vendor/child/hello.txt")), "child\n");
+    }
+}
+
+#[test]
 fn dry_run_touches_nothing() {
     let fx = Fixture::new();
     let out = fx.path("out");

@@ -404,6 +404,22 @@ fn quiet_prints_nothing_but_errors() {
     run.assert_code(128);
 }
 
+#[test]
+fn outside_a_repository_it_says_so_as_git_does() {
+    let root = tempfile::tempdir().unwrap();
+    let output = git_sprig(&[])
+        .current_dir(root.path())
+        .env("GIT_CEILING_DIRECTORIES", root.path().parent().unwrap())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(128), "{stderr}");
+    assert!(
+        stderr.starts_with("fatal: not a git repository (or any of the parent directories): "),
+        "{stderr}"
+    );
+}
+
 fn run_in_nowhere(fx: &Fixture) -> Run {
     run(&["-C", fx.path("nowhere").to_str().unwrap(), "--quiet"])
 }

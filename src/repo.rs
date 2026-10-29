@@ -57,16 +57,14 @@ pub fn discover_superproject(overrides: &[String]) -> Result<Repository> {
     )
 }
 
-/// git's own wording for the two ordinary cases; gix states them again in its
-/// own words, naming the path a second time.
-fn map_discover_error(
-    at: &Path,
-    result: std::result::Result<Repository, gix::discover::Error>,
-) -> Result<Repository> {
-    use gix::discover::{Error::Discover, upwards::Error as Upwards};
+/// git's own wording when there is no repository; gix states it again in its
+/// own words, naming the path a second time. Since gix 0.88 its errors come
+/// as one type, so the reason is looked up among their causes.
+fn map_discover_error(at: &Path, result: gix::Result<Repository>) -> Result<Repository> {
+    use gix::discover::upwards::Error as Upwards;
 
-    result.map_err(|err| match err {
-        Discover(
+    result.map_err(|err| match err.downcast_any_ref::<Upwards>() {
+        Some(
             Upwards::NoGitRepository { .. }
             | Upwards::NoGitRepositoryWithinCeiling { .. }
             | Upwards::NoGitRepositoryWithinFs { .. },
@@ -74,10 +72,7 @@ fn map_discover_error(
             "not a git repository (or any of the parent directories): {}",
             report::quoted(at.display())
         ),
-        Discover(Upwards::InaccessibleDirectory { path }) => {
-            anyhow!("cannot access {}", report::quoted(path.display()))
-        }
-        other => anyhow::Error::new(other).context(format!(
+        _ => anyhow::Error::new(err).context(format!(
             "not a git repository: {}",
             report::quoted(at.display())
         )),

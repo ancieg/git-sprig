@@ -147,8 +147,9 @@ included submodules keep their normal recursive behavior:
 $ git-sprig project project-snapshot --revision v1.4.0 -- vendor/libfoo
 ```
 
-**Relative submodule URLs** (such as `../libfoo.git`) need to know where the
-project itself came from. If the checkout has no remote, tell git-sprig:
+**Relative submodule URLs** (such as `../libfoo.git`) are resolved against the
+project's remote. Without one, git-sprig does what git does and resolves them
+against the project's own path, with a warning. To resolve them elsewhere:
 
 ```console
 $ git-sprig --remote-url https://example.com/project.git
@@ -184,7 +185,7 @@ $ git -c http.proxy=http://proxy.example.com:3128 sprig
 | `-j, --jobs <N>` | How many submodules to download at the same time. Default: the number of CPUs, at most 8. |
 | `--no-recursive` | Don't go into submodules of submodules. |
 | `--max-depth <N>` | How many levels of submodules to fetch. Default: 32; 0 means no limit. The direct root does not count as a level. |
-| `--remote-url <URL>` | Where relative submodule URLs are resolved from. |
+| `--remote-url <URL>` | Where relative submodule URLs are resolved from. Default: the remote, or the project itself without one, or `<REPOSITORY>`. |
 | `-c, --config <KEY=VALUE>` | A git setting for this run, like `git -c`: for the superproject, such as `submodule.<name>.active`, and for the downloads. |
 | `--raw, --no-filters` | Write files exactly as stored, without line ending conversion or filters. |
 | `-f, --force` | Replace destinations even if they are or contain git checkouts. |

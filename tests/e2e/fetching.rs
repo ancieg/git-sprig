@@ -75,14 +75,20 @@ fn resolves_relative_submodule_urls() {
 }
 
 #[test]
-fn relative_url_without_a_remote_is_an_error() {
+fn without_a_remote_the_superproject_is_its_own_upstream() {
     let fx = Fixture::new();
     let sup = fx.superproject();
-    set_child_url(&sup, "../child");
+    plant(&sup, &fx.path("absolute"), &[])
+        .assert_ok()
+        .assert_silent_about("authoritative upstream");
 
-    let run = plant(&sup, &fx.path("out"), &[]);
-    run.assert_failed();
-    run.assert_says("--remote-url");
+    // As in git, `../child` is found next to the superproject itself.
+    set_child_url(&sup, "../child");
+    let out = fx.path("out");
+    let run = plant(&sup, &out, &[]);
+    run.assert_ok();
+    run.assert_says("its own authoritative upstream");
+    assert_eq!(read(&out.join("vendor/child/hello.txt")), "child\n");
 }
 
 #[test]

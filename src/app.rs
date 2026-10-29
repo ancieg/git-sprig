@@ -123,16 +123,21 @@ fn run_superproject(
     let repo = discover(repo_path, &config.overrides)?;
     let commit = resolve_commit_id(&repo, &config.rev)?;
 
-    let base_url = match &config.remote_url {
-        Some(url) => Some(
+    // Without a remote, git takes the superproject for its own upstream.
+    let (base_url, own_upstream) = match &config.remote_url {
+        Some(url) => (
             gix::url::parse(gix::bstr::BStr::new(url.as_str())).with_context(|| {
                 format!(
                     "--remote-url {} is not a valid git URL",
                     report::quoted(url)
                 )
             })?,
+            false,
         ),
-        None => default_remote_url(&repo),
+        None => match default_remote_url(&repo) {
+            Some(url) => (url, false),
+            None => (local_url(&repo)?, true),
+        },
     };
 
     let tree_id = repo
@@ -150,12 +155,20 @@ fn run_superproject(
     let planned = plan::plan(
         &scan.gitlinks,
         &modules,
-        base_url.as_ref(),
+        Some(&base_url),
         &config.basedir,
         git_config.plumbing(),
         reporter,
         selection.as_mut(),
     )?;
+    if own_upstream && planned.iter().any(|planned| planned.relative) {
+        report::warning!(
+            reporter,
+            "the superproject has no remote; assuming it is its own authoritative upstream, \
+             as git does, and resolving relative submodule URLs against {}",
+            report::quoted(&base_url)
+        );
+    }
 
     // Both checked before anything is fetched.
     let work_tree = (config.index == IndexUpdate::Stage)
@@ -392,10 +405,12 @@ fn open_direct(
     })
 }
 
-/// Relative submodule URLs of a local source are resolved against its
-/// absolute path, as `git clone` records it, so they do not depend on how
-/// the path was spelled or on which subdirectory it named. `.` and `..` are
-/// folded first, since resolving takes every component for a directory.
+/// The absolute path of a local repository, for relative submodule URLs to be
+/// resolved against: the path `git clone` records for a local source, and the
+/// one git falls back to for a superproject without a remote. It does not
+/// depend on how the path was spelled or on which subdirectory it named. `.`
+/// and `..` are folded first, since resolving takes every component for a
+/// directory.
 fn local_url(repo: &Repository) -> Result<Url> {
     let path = repo.workdir().unwrap_or_else(|| repo.git_dir());
     let absolute = std::path::absolute(path)

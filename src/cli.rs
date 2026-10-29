@@ -105,7 +105,7 @@ pub(crate) struct Args {
     #[arg(long, default_value_t = 32, value_name = "N")]
     pub(crate) max_depth: usize,
 
-    /// Base URL for relative submodule URLs; defaults to the source remote or URL.
+    /// Base URL for relative submodule URLs; defaults to the remote, or the repository itself.
     #[arg(long, value_name = "URL")]
     pub(crate) remote_url: Option<String>,
 

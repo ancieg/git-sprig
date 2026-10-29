@@ -73,7 +73,7 @@ pub fn resolve_url(raw: &BStr, parent: Option<&Url>) -> Result<Url> {
     Ok(url)
 }
 
-fn is_relative(url: &BStr) -> bool {
+pub fn is_relative(url: &BStr) -> bool {
     url.starts_with(b"./") || url.starts_with(b"../") || url == "." || url == ".."
 }
 

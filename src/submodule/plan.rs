@@ -33,6 +33,8 @@ pub struct Planned {
     /// The submodule's name in `.gitmodules`.
     pub name: BString,
     pub url: Url,
+    /// Whether the configured URL was relative, so resolved against the parent's.
+    pub relative: bool,
     pub commit: ObjectId,
     /// Relative to the tree the gitlink was found in.
     pub path: TreePath,
@@ -144,6 +146,7 @@ pub fn plan(
         planned.push(Planned {
             name: entry.name.clone(),
             url,
+            relative: url::is_relative(entry.url.as_ref()),
             commit: link.commit,
             path: link.path.clone(),
             destination,

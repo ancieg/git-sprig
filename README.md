@@ -160,12 +160,12 @@ $ git-sprig -c http.proxy=http://proxy.example.com:3128
 
 | Option | What it does |
 |---|---|
-| `<repository> <directory>` | Materialize the complete root tree of a local or remote repository into the required destination. Cannot be combined with `-C`, `--basedir`, or `--stage`. |
+| `<REPOSITORY> <DIRECTORY>` | Materialize the complete root tree of a local or remote repository into the required destination. Cannot be combined with `-C`, `--basedir`, or `--stage`. |
 | `-C, --repo <DIR>` | The project to read submodules from. Default: the current directory. |
-| `--revision <tree-ish>` | Which commit, branch or tag of the source to use. Default: `HEAD`. `--rev` is a compatibility alias. |
+| `--revision <REV>` | Which commit, branch or tag of the source to use. Default: `HEAD`. `--rev` is a compatibility alias. |
 | `-b, --basedir <DIR>` | Where to write submodules in `-C` mode. Default: the current directory. |
-| `[--] [<pathspec>...]` | Include only matching top-level submodules. Without includes, every submodule is eligible. |
-| `--exclude <pathspec>` | Exclude matching top-level submodules, including glob patterns. May be repeated. |
+| `[-- <PATHSPEC>...]` | Include only matching top-level submodules. Without includes, every submodule is eligible. |
+| `--exclude <PATHSPEC>` | Exclude matching top-level submodules, including glob patterns. May be repeated. |
 | `-j, --jobs <N>` | How many submodules to download at the same time. Default: the number of CPUs, at most 8. |
 | `--no-recursive` | Don't go into submodules of submodules. |
 | `--max-depth <N>` | How many levels of submodules to fetch. Default: 32; 0 means no limit. The direct root does not count as a level. |
@@ -184,7 +184,7 @@ $ git-sprig -c http.proxy=http://proxy.example.com:3128
 ## Good to know
 
 - **Destinations are replaced completely.** In direct mode, the whole positional
-  `<directory>` is replaced, so files from an older revision cannot linger.
+  `<DIRECTORY>` is replaced, so files from an older revision cannot linger.
   Without a positional repository, only submodule folders are replaced; the
   project's own files are never touched, except the index and `.gitmodules`
   when you pass `--stage`.

@@ -41,7 +41,7 @@ use crate::{
                   Each destination is replaced as a whole, once it has been written completely. \
                   Direct mode requires an explicit destination. Pathspecs after -- and --exclude \
                   filter only top-level submodules. All output goes to stderr.",
-    override_usage = "git-sprig [OPTIONS] [repository] [directory] [--] [<pathspec>...]"
+    override_usage = "git-sprig [OPTIONS] [REPOSITORY DIRECTORY] [-- PATHSPEC...]"
 )]
 #[expect(
     clippy::struct_excessive_bools,
@@ -54,7 +54,7 @@ pub(crate) struct Args {
 
     /// Local or remote repository to materialize completely.
     #[arg(
-        value_name = "repository",
+        value_name = "REPOSITORY",
         requires = "directory",
         conflicts_with = "repo",
         conflicts_with = "stage",
@@ -64,7 +64,7 @@ pub(crate) struct Args {
 
     /// Required destination for the complete repository tree.
     #[arg(
-        value_name = "directory",
+        value_name = "DIRECTORY",
         value_parser = clap::builder::PathBufValueParser::new().try_map(|path| destination(&path))
     )]
     pub(crate) directory: Option<PathBuf>,
@@ -73,8 +73,8 @@ pub(crate) struct Args {
     #[arg(skip)]
     pub(crate) includes: Vec<String>,
 
-    /// Revision of the source repository to use.
-    #[arg(long, alias = "rev", default_value = "HEAD", value_name = "tree-ish")]
+    /// Commit, branch or tag of the source repository to use.
+    #[arg(long, alias = "rev", default_value = "HEAD", value_name = "REV")]
     pub(crate) revision: String,
 
     /// Base directory for submodule-only mode (default: .).
@@ -82,7 +82,7 @@ pub(crate) struct Args {
     pub(crate) basedir: Option<PathBuf>,
 
     /// Top-level submodule pathspec to exclude; may be repeated.
-    #[arg(long = "exclude", value_name = "pathspec", value_parser = valid_pathspec)]
+    #[arg(long = "exclude", value_name = "PATHSPEC", value_parser = valid_pathspec)]
     pub(crate) excludes: Vec<String>,
 
     /// Replace destinations that have a .git of their own, discarding work in them.

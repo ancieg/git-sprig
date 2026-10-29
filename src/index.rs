@@ -41,8 +41,9 @@ pub struct Submodule {
     pub path: TreePath,
 }
 
-/// The superproject's work tree, which `basedir` has to be for `--stage`.
-pub fn work_tree(repo: &Repository, basedir: &Path) -> Result<PathBuf> {
+/// The superproject's work tree, which `root`, where submodules are written,
+/// has to be for `--stage`.
+pub fn work_tree(repo: &Repository, root: &Path) -> Result<PathBuf> {
     let Some(work_tree) = repo.workdir() else {
         bail!(
             "--stage needs a work tree, but {} is a bare repository",
@@ -55,7 +56,7 @@ pub fn work_tree(repo: &Repository, basedir: &Path) -> Result<PathBuf> {
             report::quoted(work_tree.display())
         )
     })?;
-    if basedir.canonicalize().ok().as_ref() != Some(&work_tree) {
+    if root.canonicalize().ok().as_ref() != Some(&work_tree) {
         bail!(
             "--stage changes the superproject's index, so the submodules have to be written \
              into its work tree: run from {} or pass --work-tree {}",

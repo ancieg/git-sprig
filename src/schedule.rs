@@ -71,13 +71,13 @@ pub struct Options {
 /// Materialize `planned` and everything nested in it.
 pub fn run(
     planned: Vec<Planned>,
-    basedir: &Path,
+    root: &Path,
     options: &Options,
     fetcher: &Fetcher,
     reporter: &Reporter,
     cancel: &CancelToken,
 ) -> Result<()> {
-    let mut coordinator = Coordinator::new(basedir, reporter, cancel, planned);
+    let mut coordinator = Coordinator::new(root, reporter, cancel, planned);
 
     thread::scope(|scope| {
         let (tx, rx) = mpsc::channel::<Done>();
@@ -91,7 +91,7 @@ pub fn run(
                 inflight += 1;
                 let tx = tx.clone();
                 scope.spawn(move || {
-                    let result = run_job(&job, basedir, options, fetcher, cached, reporter, cancel);
+                    let result = run_job(&job, root, options, fetcher, cached, reporter, cancel);
                     // The only receiver lives until every worker has reported.
                     tx.send(Done { job, result }).ok();
                 });
@@ -116,8 +116,8 @@ pub fn run(
     Ok(())
 }
 
-fn shown_path<'a>(basedir: &Path, destination: &'a Path) -> &'a Path {
-    destination.strip_prefix(basedir).unwrap_or(destination)
+fn shown_path<'a>(root: &Path, destination: &'a Path) -> &'a Path {
+    destination.strip_prefix(root).unwrap_or(destination)
 }
 
 /// Submodules pinning the same commit of the same URL share one fetch.
@@ -197,7 +197,7 @@ struct Done {
 }
 
 struct Coordinator<'a> {
-    basedir: &'a Path,
+    root: &'a Path,
     reporter: &'a Reporter,
     cancel: &'a CancelToken,
     /// Ready to run: the fetch is either unclaimed or already cached.
@@ -218,13 +218,13 @@ struct Coordinator<'a> {
 
 impl<'a> Coordinator<'a> {
     fn new(
-        basedir: &'a Path,
+        root: &'a Path,
         reporter: &'a Reporter,
         cancel: &'a CancelToken,
         planned: Vec<Planned>,
     ) -> Self {
         let mut coordinator = Coordinator {
-            basedir,
+            root,
             reporter,
             cancel,
             queue: Vec::new(),
@@ -308,7 +308,7 @@ impl<'a> Coordinator<'a> {
         report::status!(
             self.reporter,
             "Fetching submodule {} from {} {}",
-            report::quoted(shown_path(self.basedir, &job.planned.destination).display()),
+            report::quoted(shown_path(self.root, &job.planned.destination).display()),
             report::quoted(&job.planned.url),
             report::Counter {
                 number: self.started,
@@ -352,7 +352,7 @@ impl<'a> Coordinator<'a> {
         }
 
         let group = job.group;
-        let shown = shown_path(self.basedir, &job.planned.destination).to_owned();
+        let shown = shown_path(self.root, &job.planned.destination).to_owned();
         self.groups[group].planted.push((shown, job.planned.commit));
         if produced.snapshot.is_some() {
             self.groups[group].snapshot = produced.snapshot;
@@ -402,7 +402,7 @@ impl<'a> Coordinator<'a> {
 /// a worker thread; the coordinator owns everything shared.
 fn run_job(
     job: &Job,
-    basedir: &Path,
+    root: &Path,
     options: &Options,
     fetcher: &Fetcher,
     cached: Option<Arc<Ephemeral>>,
@@ -416,7 +416,7 @@ fn run_job(
         destination,
         ..
     } = &job.planned;
-    let shown = shown_path(basedir, destination);
+    let shown = shown_path(root, destination);
     let cannot_write = || {
         format!(
             "cannot write the snapshot to {}",

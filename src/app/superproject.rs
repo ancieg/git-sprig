@@ -45,12 +45,12 @@ pub(super) fn run(
     cancel: &CancelToken,
 ) -> Result<()> {
     let repo = repo::discover_superproject(&config.overrides)?;
-    let basedir = work_tree(&repo, superproject.work_tree.as_deref())?;
-    let planned = plan_submodules(config, &repo, &basedir, reporter)?;
+    let work_tree = find_work_tree(&repo, superproject.work_tree.as_deref())?;
+    let planned = plan_submodules(config, &repo, &work_tree, reporter)?;
 
     // Both checked before anything is fetched.
     let staged_tree = (config.index == IndexUpdate::Stage)
-        .then(|| index::work_tree(&repo, &basedir))
+        .then(|| index::work_tree(&repo, &work_tree))
         .transpose()?;
     if config.checkouts == Checkouts::Refuse {
         protect::refuse_checkouts(&planned)?;
@@ -61,8 +61,8 @@ pub(super) fn run(
         return Ok(());
     }
 
-    std::fs::create_dir_all(&basedir)
-        .with_context(|| format!("cannot create {}", report::quoted(basedir.display())))?;
+    std::fs::create_dir_all(&work_tree)
+        .with_context(|| format!("cannot create {}", report::quoted(work_tree.display())))?;
 
     let submodules: Vec<index::Submodule> = if staged_tree.is_some() {
         planned
@@ -85,22 +85,22 @@ pub(super) fn run(
         .context("cannot create temporary storage")?;
     schedule::run(
         planned,
-        &basedir,
+        &work_tree,
         &schedule_options(config, jobs),
         &fetcher,
         reporter,
         cancel,
     )?;
 
-    if let Some(work_tree) = &staged_tree {
-        index::stage(work_tree, &submodules, reporter)?;
+    if let Some(canonical) = &staged_tree {
+        index::stage(canonical, &submodules, reporter)?;
     }
     Ok(())
 }
 
 /// As in git, submodule paths start at the top of the work tree, wherever in
 /// it git-sprig runs.
-fn work_tree(repo: &Repository, given: Option<&Path>) -> Result<PathBuf> {
+fn find_work_tree(repo: &Repository, given: Option<&Path>) -> Result<PathBuf> {
     match given {
         Some(work_tree) => Ok(work_tree.to_owned()),
         None => repo.workdir().map(Path::to_owned).ok_or_else(|| {
@@ -117,7 +117,7 @@ fn work_tree(repo: &Repository, given: Option<&Path>) -> Result<PathBuf> {
 fn plan_submodules(
     config: &Config,
     repo: &Repository,
-    basedir: &Path,
+    work_tree: &Path,
     reporter: &Reporter,
 ) -> Result<Vec<Planned>> {
     let (base_url, own_upstream) = base_url(config, repo)?;
@@ -130,13 +130,13 @@ fn plan_submodules(
     let mut selection = plan::selection(
         &config.includes,
         &config.excludes,
-        prefix(basedir).as_deref(),
+        prefix(work_tree).as_deref(),
     )?;
     let planned = plan::plan(
         &gitlinks,
         &modules,
         Some(&base_url),
-        basedir,
+        work_tree,
         git_config.plumbing(),
         reporter,
         selection.as_mut(),

@@ -78,7 +78,7 @@ pub fn plan(
     gitlinks: &[Gitlink],
     modules: &Modules,
     parent_url: Option<&Url>,
-    basedir: &Path,
+    root: &Path,
     config: &gix::config::File,
     reporter: &Reporter,
     mut selection: Option<&mut gix::pathspec::Search>,
@@ -86,7 +86,7 @@ pub fn plan(
     let mut planned = Vec::with_capacity(gitlinks.len());
     for link in gitlinks {
         // The path comes from the validated tree, never from `.gitmodules`.
-        let destination = basedir.join(&link.path);
+        let destination = root.join(&link.path);
         if let Some(search) = &mut selection {
             let selected = search
                 .pattern_matching_relative_path(

@@ -228,7 +228,7 @@ fn the_former_basedir_still_works_with_a_warning() {
         let out = fx.path(&format!("out-{index}"));
         let run = run(&["-C", sup.to_str().unwrap(), flag, out.to_str().unwrap()]);
         run.assert_ok();
-        run.assert_says("warning: -b and --basedir are deprecated; use --work-tree");
+        run.assert_says("deprecated; use --work-tree");
         assert_eq!(read(&out.join("vendor/child/hello.txt")), "child\n");
     }
 }

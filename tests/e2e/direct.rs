@@ -120,6 +120,42 @@ fn resolves_remote_ids_branches_tags_and_head() {
 }
 
 #[test]
+fn dash_b_names_the_branch_as_in_git_clone() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = root.path().join("repo");
+    init_repo(&repo);
+    write(&repo, "version.txt", "old\n");
+    commit_all(&repo, "old tree");
+    git(&repo, &["branch", "old-branch"]);
+    git(&repo, &["tag", "v1"]);
+    write(&repo, "version.txt", "new\n");
+    commit_all(&repo, "new tree");
+    let url = file_url(&repo);
+
+    for (index, [flag, name]) in [["-b", "old-branch"], ["--branch", "v1"]]
+        .into_iter()
+        .enumerate()
+    {
+        let out = root.path().join(format!("out-{index}"));
+        run(&[&url, out.to_str().unwrap(), flag, name]).assert_ok();
+        assert_eq!(read(&out.join("version.txt")), "old\n", "{flag}");
+    }
+
+    let out = root.path().join("both");
+    let run = run(&[
+        &url,
+        out.to_str().unwrap(),
+        "-b",
+        "v1",
+        "--revision",
+        "HEAD",
+    ]);
+    run.assert_code(129);
+    run.assert_says("-b is short for --branch");
+    assert!(!out.exists());
+}
+
+#[test]
 fn reuses_conversion_and_recursive_submodule_materialization() {
     let fx = Fixture::new();
     let sup = fx.superproject();

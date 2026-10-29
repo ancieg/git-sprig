@@ -54,7 +54,7 @@ Shell completions work for both `git-sprig` and `git sprig`:
 Export a complete project, including its submodules, straight from a repository:
 
 ```console
-$ git-sprig https://example.com/project.git project-1.4.0 --revision v1.4.0
+$ git-sprig -b v1.4.0 https://example.com/project.git project-1.4.0
 ```
 
 The destination contains the project's own files as well as its submodules,
@@ -179,7 +179,7 @@ $ git -c http.proxy=http://proxy.example.com:3128 sprig
 |---|---|
 | `<REPOSITORY> <DIRECTORY>` | Materialize the complete root tree of a local or remote repository into the required destination. Cannot be combined with `--work-tree` or `--stage`. |
 | `-C <DIR>` | Run as if git-sprig was started in `<DIR>`, like `git -C`. May be repeated. `--repo` is a deprecated name for it. |
-| `--revision <REV>` | Which commit, branch or tag of the source to use. Default: `HEAD`. `--rev` is a compatibility alias. |
+| `--revision <REV>` | Which commit, branch or tag of the source to use. Default: `HEAD`. `-b` and `--branch` name it as in `git clone`, given a `<REPOSITORY>`; `--rev` is a compatibility alias. |
 | `--work-tree <DIR>` | Where to write submodules without `<REPOSITORY>`. Default: the top of the work tree, wherever in it git-sprig runs; `git --git-dir=… --work-tree=… sprig` works as in git. `-b` and `--basedir` are deprecated names for it. |
 | `[-- <PATHSPEC>...]` | Include only matching top-level submodules. Without includes, every submodule is eligible. |
 | `--exclude <PATHSPEC>` | Exclude matching top-level submodules, including glob patterns. May be repeated. |

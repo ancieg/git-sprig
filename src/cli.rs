@@ -77,22 +77,21 @@ pub(crate) struct Args {
     #[arg(skip)]
     pub(crate) includes: Vec<String>,
 
-    /// Commit, branch or tag of the source repository to use.
-    #[arg(long, alias = "rev", default_value = "HEAD", value_name = "REV")]
-    pub(crate) revision: String,
+    /// Commit, branch or tag of the source repository to use [default: HEAD].
+    #[arg(long, alias = "rev", visible_alias = "branch", value_name = "REV")]
+    pub(crate) revision: Option<String>,
+
+    /// Short for --branch, as in `git clone`; without a REPOSITORY, still the
+    /// deprecated short form of --work-tree.
+    #[arg(short = 'b', value_name = "BRANCH", conflicts_with_all = ["work_tree", "basedir"])]
+    pub(crate) short_b: Option<String>,
 
     /// Where submodule paths start in submodule-only mode (default: the top of the work tree).
     #[arg(long = "work-tree", value_name = "DIR")]
     pub(crate) work_tree: Option<PathBuf>,
 
     /// The former name of --work-tree.
-    #[arg(
-        short = 'b',
-        long,
-        value_name = "DIR",
-        hide = true,
-        conflicts_with = "work_tree"
-    )]
+    #[arg(long, value_name = "DIR", hide = true, conflicts_with = "work_tree")]
     pub(crate) basedir: Option<PathBuf>,
 
     /// Top-level submodule pathspec to exclude; may be repeated.
@@ -208,8 +207,26 @@ impl Args {
             return Ok(Action::GenerateCompletions(shell));
         }
         let mut warnings = Vec::new();
-        if self.basedir.is_some() {
-            warnings.push("-b and --basedir are deprecated; use --work-tree".to_owned());
+        let mut revision = self.revision;
+        let mut basedir = self.basedir;
+        match (self.short_b, self.repository.is_some()) {
+            (Some(_), true) if revision.is_some() => {
+                return Err(clap::Error::raw(
+                    clap::error::ErrorKind::ArgumentConflict,
+                    "-b is short for --branch and cannot be combined with --branch or --revision\n",
+                )
+                .into());
+            }
+            (Some(branch), true) => revision = Some(branch),
+            (Some(dir), false) => basedir = Some(PathBuf::from(dir)),
+            (None, _) => {}
+        }
+        if basedir.is_some() {
+            warnings.push(
+                "-b and --basedir for the work tree are deprecated; use --work-tree, as -b will \
+                 mean --branch as in git clone"
+                    .to_owned(),
+            );
         }
         if self.repo.is_some() {
             warnings
@@ -222,7 +239,7 @@ impl Args {
                 into: self.directory.unwrap_or_default(),
             }),
             None => Source::Superproject {
-                work_tree: self.work_tree.or(self.basedir),
+                work_tree: self.work_tree.or(basedir),
             },
         };
         // Those from `git -c` come first, so that our own -c wins, as in git.
@@ -232,7 +249,7 @@ impl Args {
             source,
             chdir: self.chdir.into_iter().chain(self.repo).collect(),
             warnings,
-            rev: self.revision,
+            rev: revision.unwrap_or_else(|| "HEAD".to_owned()),
             includes: self.includes,
             excludes: self.excludes,
             remote_url: self.remote_url,

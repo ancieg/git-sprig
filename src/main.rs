@@ -73,7 +73,14 @@ fn main() -> ExitCode {
     };
     let action = match args.into_action() {
         Ok(action) => action,
-        Err(err) => return fatal(&err),
+        // Some combinations are only wrong in one mode, which clap cannot tell.
+        Err(err) => match err.downcast::<clap::Error>() {
+            Ok(usage) => {
+                usage.print().ok();
+                return ExitCode::from(EXIT_USAGE);
+            }
+            Err(err) => return fatal(&err),
+        },
     };
     let config = match action {
         Action::GenerateMan => return generated(cli::generate::man(Args::command())),

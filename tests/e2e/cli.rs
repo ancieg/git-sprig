@@ -107,6 +107,8 @@ printf '%s\n' "${{COMPREPLY[@]}}"
         "git sprig --revision ma",
         "git sprig --rev=ma",
         "git sprig --rev ma",
+        "git sprig --branch=ma",
+        "git sprig -b ma",
     ]
     .map(complete);
     let shells = complete("git sprig --generate-completions ");

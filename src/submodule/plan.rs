@@ -47,16 +47,19 @@ pub fn selection(
     if includes.is_empty() && excludes.is_empty() {
         return Ok(None);
     }
+    let parse = |pattern: &String| {
+        gix::pathspec::parse(pattern.as_bytes(), gix::pathspec::Defaults::default())
+            .with_context(|| format!("invalid submodule pathspec {}", report::quoted(pattern)))
+    };
     let patterns = includes
         .iter()
-        .map(|pattern| {
-            gix::pathspec::parse(pattern.as_bytes(), gix::pathspec::Defaults::default())
-                .with_context(|| format!("invalid submodule pathspec {}", report::quoted(pattern)))
-        })
+        .map(parse)
         .chain(excludes.iter().map(|pattern| {
-            let pattern = format!(":(exclude){pattern}");
-            gix::pathspec::parse(pattern.as_bytes(), gix::pathspec::Defaults::default())
-                .with_context(|| format!("invalid submodule pathspec {}", report::quoted(pattern)))
+            // Set on the parsed pattern: a textual `:(exclude)` prefix would
+            // turn magic the pattern has of its own, like `:(glob)`, into a path.
+            let mut pattern = parse(pattern)?;
+            pattern.signature |= gix::pathspec::MagicSignature::EXCLUDE;
+            Ok(pattern)
         }))
         .collect::<Result<Vec<_>>>()?;
     Ok(Some(

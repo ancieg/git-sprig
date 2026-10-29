@@ -82,9 +82,15 @@ fn excludes_top_level_submodules_with_paths_globs_and_magic() {
     plant(&sup, &magic, &["--", ":(exclude)vendor/grand"]).assert_ok();
     assert_selected_child(&magic);
 
+    let excluded_magic = fx.path("excluded-magic");
+    plant(&sup, &excluded_magic, &["--exclude", ":(glob)vendor/gr*"]).assert_ok();
+    assert_selected_child(&excluded_magic);
+
     for (index, extra) in [
         vec!["--exclude", "vendor/*"],
         vec!["--exclude", "vendor/child", "--exclude", "vendor/grand"],
+        vec!["--exclude", ":(glob)vendor/*"],
+        vec!["--exclude", ":/vendor/child", "--exclude", ":!vendor/grand"],
     ]
     .into_iter()
     .enumerate()

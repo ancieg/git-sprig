@@ -21,14 +21,14 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow};
 use gix::{ObjectId, Repository, ThreadSafeRepository, Url};
 
 use crate::{
     cancel::CancelToken,
     config::{Checkouts, Config, Direct, IndexUpdate, Mode, Source, Submodules},
     fetch::{Ephemeral, Fetcher},
-    fs, index, repo,
+    index, protect, repo,
     report::{self, Reporter},
     schedule::{self, Recursion},
     snapshot::Snapshot,
@@ -194,7 +194,7 @@ fn run_superproject(
         .then(|| index::work_tree(&repo, &basedir))
         .transpose()?;
     if config.checkouts == Checkouts::Refuse {
-        refuse_checkouts(&planned)?;
+        protect::refuse_checkouts(&planned)?;
     }
 
     if config.mode == Mode::DryRun {
@@ -254,7 +254,7 @@ fn run_direct(
     // Patterns are relative to the root here; check them before anything is fetched.
     plan::selection(&config.includes, &config.excludes, None)?;
     if config.checkouts == Checkouts::Refuse {
-        refuse_holding_checkouts(into)?;
+        protect::refuse_holding_checkouts(into)?;
     }
     let source = open_direct(config, direct, reporter, cancel)?;
     let repo = source.repository.repo();
@@ -379,7 +379,7 @@ fn open_direct(
     let (repository, commit, base_url) = if local_source {
         let repo = repo::discover(Path::new(from), &config.overrides)?;
         if config.checkouts == Checkouts::Refuse {
-            refuse_enclosing_destination(into, &repo)?;
+            protect::refuse_enclosing_destination(into, &repo)?;
         }
         let commit = repo::resolve_commit_id(&repo, config.direct_rev())?;
         let base_url = match remote_url {
@@ -417,62 +417,6 @@ fn open_direct(
         base_url,
         fetcher,
     })
-}
-
-/// The whole destination goes, so a checkout anywhere inside it would too.
-fn refuse_holding_checkouts(destination: &Path) -> Result<()> {
-    let Some(checkout) = fs::find_checkout(destination)? else {
-        return Ok(());
-    };
-    if checkout == destination {
-        bail!(
-            "refusing to replace {}, which is a git checkout with a .git of its own\n\
-             Replacing it discards any uncommitted or unpushed work; pass --force to do it \
-             anyway.",
-            report::quoted(destination.display())
-        );
-    }
-    bail!(
-        "refusing to replace {}, which holds the git checkout {}\n\
-         Replacing it discards any uncommitted or unpushed work there; pass --force to do it \
-         anyway.",
-        report::quoted(destination.display()),
-        report::quoted(checkout.display())
-    );
-}
-
-/// Replacing a destination that holds the local source deletes the source
-/// too, along with whatever work is in it. A linked worktree needs its
-/// common directory as well, which may live elsewhere.
-fn refuse_enclosing_destination(destination: &Path, repo: &Repository) -> Result<()> {
-    let canonical = match std::fs::canonicalize(destination) {
-        Ok(canonical) => canonical,
-        // A destination that does not exist yet holds nothing.
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(err) => {
-            return Err(err).with_context(|| {
-                format!("cannot inspect {}", report::quoted(destination.display()))
-            });
-        }
-    };
-    let parts = [
-        repo.workdir(),
-        Some(repo.git_dir()),
-        Some(repo.common_dir()),
-    ];
-    for part in parts.into_iter().flatten() {
-        let part = std::fs::canonicalize(part)
-            .with_context(|| format!("cannot inspect {}", report::quoted(part.display())))?;
-        if part.starts_with(&canonical) {
-            bail!(
-                "refusing to replace {}, which contains the source repository\n\
-                 Replacing it deletes the source and any uncommitted or unpushed work in \
-                 it; pass --force to do it anyway.",
-                report::quoted(destination.display())
-            );
-        }
-    }
-    Ok(())
 }
 
 fn dry_run_direct(
@@ -570,25 +514,6 @@ fn jobs(given: Option<u16>, config: &gix::config::File, scope: Scope) -> NonZero
     NonZeroUsize::new(wanted)
         .or_else(|| NonZeroUsize::new(available_cpus().min(8)))
         .unwrap_or(NonZeroUsize::MIN)
-}
-
-/// Replacing a submodule checkout discards whatever work is in it.
-fn refuse_checkouts(planned: &[Planned]) -> Result<()> {
-    let checkouts: Vec<String> = planned
-        .iter()
-        .filter(|planned| fs::is_checkout(&planned.destination))
-        .map(|planned| report::quoted(planned.destination.display()).to_string())
-        .collect();
-    if !checkouts.is_empty() {
-        bail!(
-            "refusing to replace {} submodule checkout(s) with a .git of their own: {}\n\
-             Replacing them discards any uncommitted or unpushed work in them; \
-             pass --force to do it anyway.",
-            checkouts.len(),
-            checkouts.join(", ")
-        );
-    }
-    Ok(())
 }
 
 fn report_dry_run(

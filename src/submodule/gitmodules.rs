@@ -14,7 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-//! Reading `.gitmodules` out of a tree and deciding which submodules are active.
+//! Reading `.gitmodules`, letting the configuration override it as git does,
+//! and deciding which submodules are active.
 
 use std::{
     collections::{HashMap, hash_map},

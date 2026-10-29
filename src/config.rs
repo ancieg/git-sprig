@@ -31,7 +31,7 @@ pub enum Action {
     GenerateCompletions(CompletionShell),
 }
 
-/// Whether to replace a submodule directory that is a git checkout of its own.
+/// Whether to replace a destination that is, holds or belongs to a git checkout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Checkouts {
     Refuse,
@@ -90,7 +90,8 @@ pub struct Config {
     pub excludes: Vec<String>,
     /// Base for relative submodule URLs; the source's remote or URL if absent.
     pub remote_url: Option<gix::Url>,
-    /// `key=value` pairs for the fetches, like `git -c`.
+    /// `key=value` settings for the whole run, like `git -c`, those handed down
+    /// by git itself first.
     pub overrides: Vec<String>,
     pub tempdir: Option<PathBuf>,
     /// From -j: 0 asks for the default, and `None` for `submodule.fetchJobs`.

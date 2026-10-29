@@ -293,6 +293,33 @@ fn rejects_invalid_direct_arguments_before_fetching() {
 }
 
 #[test]
+fn destinations_must_end_in_a_name() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = root.path().join("repo");
+    init_repo(&repo);
+    write(&repo, "source.txt", "source\n");
+    commit_all(&repo, "source");
+    let work = root.path().join("work");
+    std::fs::create_dir(&work).unwrap();
+
+    for out in [".", "..", "out/.."] {
+        let output = git_sprig(&[repo.to_str().unwrap(), out])
+            .current_dir(&work)
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(129), "{out}: {stderr}");
+        assert!(stderr.contains("must end in a name"), "{out}: {stderr}");
+    }
+    assert_eq!(std::fs::read_dir(&work).unwrap().count(), 0);
+
+    let out = root.path().join("out/.");
+    direct(repo.to_str().unwrap(), &out, "HEAD", &[]).assert_ok();
+    assert_eq!(read(&root.path().join("out/source.txt")), "source\n");
+    assert_eq!(leftovers(root.path()), Vec::<String>::new());
+}
+
+#[test]
 fn hostile_root_trees_leave_the_previous_destination_intact() {
     let root = tempfile::tempdir().unwrap();
     let repo = root.path().join("repo");

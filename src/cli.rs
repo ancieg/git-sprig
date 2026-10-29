@@ -20,7 +20,7 @@ pub mod generate;
 
 use std::{num::NonZeroUsize, path::PathBuf};
 
-use clap::Parser;
+use clap::{Parser, builder::TypedValueParser};
 
 use crate::{
     config::{Action, Checkouts, Config, IndexUpdate, Mode, Source},
@@ -63,7 +63,10 @@ pub(crate) struct Args {
     pub(crate) repository: Option<String>,
 
     /// Required destination for the complete repository tree.
-    #[arg(value_name = "directory")]
+    #[arg(
+        value_name = "directory",
+        value_parser = clap::builder::PathBufValueParser::new().try_map(|path| destination(&path))
+    )]
     pub(crate) directory: Option<PathBuf>,
 
     /// Top-level submodule pathspecs to include, after --.
@@ -239,6 +242,17 @@ impl Args {
             },
         }))
     }
+}
+
+/// The destination is replaced by renaming it. Renaming `.`, `..` or `/`
+/// fails only after everything has been fetched, so they are refused here;
+/// a trailing `/.` would fail the same way and is dropped.
+fn destination(path: &std::path::Path) -> Result<PathBuf, String> {
+    let path: PathBuf = path.components().collect();
+    if path.file_name().is_none() {
+        return Err("the destination is replaced as a whole and must end in a name".to_owned());
+    }
+    Ok(path)
 }
 
 fn valid_pathspec(value: &str) -> Result<String, String> {

@@ -23,7 +23,9 @@ use std::{num::NonZeroUsize, path::PathBuf};
 use clap::{Parser, builder::TypedValueParser};
 
 use crate::{
-    config::{Action, Checkouts, Config, Direct, IndexUpdate, Mode, Source, Submodules},
+    config::{
+        Action, Checkouts, Config, Direct, IndexUpdate, Mode, Source, Submodules, Superproject,
+    },
     report::Verbosity,
     schedule::Recursion,
     tree::Conversion,
@@ -216,9 +218,9 @@ impl Args {
                 // clap requires the destination along with the repository.
                 into: self.directory.unwrap_or_default(),
             }),
-            None => Source::Superproject {
+            None => Source::Superproject(Superproject {
                 work_tree: self.work_tree,
-            },
+            }),
         };
         // Those from `git -c` come first, so that our own -c wins, as in git.
         let mut overrides = inherited_overrides()?;

@@ -61,12 +61,14 @@ pub enum Mode {
 
 pub enum Source {
     /// Read gitlinks from a local superproject, leaving its own files alone.
-    Superproject {
-        /// Where submodule paths are rooted; the top of the work tree if absent.
-        work_tree: Option<PathBuf>,
-    },
+    Superproject(Superproject),
     /// Materialize the complete root tree of a local or remote repository.
     Direct(Direct),
+}
+
+pub struct Superproject {
+    /// Where submodule paths are rooted; the top of the work tree if absent.
+    pub work_tree: Option<PathBuf>,
 }
 
 pub struct Direct {

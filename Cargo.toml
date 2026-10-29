@@ -2,7 +2,7 @@
 name = "git-sprig"
 version = "0.2.2"
 edition = "2024"
-rust-version = "1.88.0"
+rust-version = "1.99.0"
 description = "Materialize git repositories and submodules as plain files without history"
 license = "GPL-3.0-or-later"
 homepage = "https://github.com/ancieg/git-sprig"

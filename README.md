@@ -262,7 +262,7 @@ $ cargo test -- --ignored     # also compare with git on github.com
 $ cargo clippy --all-targets  # pedantic lints are enabled in Cargo.toml
 ```
 
-GitHub Actions runs the offline tests on both Rust 1.88, the oldest version
+GitHub Actions runs the offline tests on both Rust 1.99, the oldest version
 git-sprig supports, and stable, along with `cargo fmt --check` and clippy.
 
 ## License

@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        rust: ["1.88.0", "stable"]
+        rust: ["1.99.0", "stable"]
     steps:
       - uses: actions/checkout@v4
       - run: rustup toolchain install ${{ matrix.rust }} --profile minimal --no-self-update

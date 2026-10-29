@@ -524,7 +524,8 @@ struct Objects {
 
 impl Objects {
     fn open(repo: &Repository) -> Result<Self> {
-        let loose = repo.git_dir().join("objects");
+        // A linked worktree keeps its objects in the common directory.
+        let loose = repo.common_dir().join("objects");
         let dir = loose.join("pack");
         let entries = match std::fs::read_dir(&dir) {
             Ok(entries) => entries,

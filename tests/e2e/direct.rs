@@ -69,12 +69,20 @@ fn streams_loose_files_from_local_repositories() {
     write(&repo, "small.txt", "small\n");
     commit_all(&repo, "loose files");
 
-    let out = root.path().join("out");
-    let run = direct(repo.to_str().unwrap(), &out, "HEAD", &["-v", "--raw"]);
-    run.assert_ok();
-    run.assert_says("wrote 2 files, 2 streamed");
-    assert_eq!(std::fs::read(out.join("big.bin")).unwrap(), big);
-    assert_eq!(read(&out.join("small.txt")), "small\n");
+    let worktree = root.path().join("worktree");
+    git(
+        &repo,
+        &["worktree", "add", "-q", worktree.to_str().unwrap()],
+    );
+
+    for (name, source) in [("out", &repo), ("out-worktree", &worktree)] {
+        let out = root.path().join(name);
+        let run = direct(source.to_str().unwrap(), &out, "HEAD", &["-v", "--raw"]);
+        run.assert_ok();
+        run.assert_says("wrote 2 files, 2 streamed");
+        assert_eq!(std::fs::read(out.join("big.bin")).unwrap(), big);
+        assert_eq!(read(&out.join("small.txt")), "small\n");
+    }
 }
 
 #[test]

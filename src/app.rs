@@ -23,7 +23,7 @@ use gix::{ObjectId, Repository, ThreadSafeRepository, Url};
 
 use crate::{
     cancel::CancelToken,
-    config::{Checkouts, Config, IndexUpdate, Mode, Source},
+    config::{Checkouts, Config, Direct, IndexUpdate, Mode, Source},
     fetch::{Ephemeral, Fetcher},
     fs, index,
     report::{self, Reporter},
@@ -93,8 +93,10 @@ impl RootRepository {
 pub(crate) fn run(config: &Config, reporter: &Reporter, cancel: &CancelToken) -> Result<()> {
     cancel.install_handler()?;
     match &config.source {
-        Source::Superproject { repo } => run_superproject(config, repo, reporter, cancel),
-        Source::Direct { from } => run_direct(config, from, reporter, cancel),
+        Source::Superproject { repo, work_tree } => {
+            run_superproject(config, repo, work_tree.as_deref(), reporter, cancel)
+        }
+        Source::Direct(direct) => run_direct(config, direct, reporter, cancel),
     }
 }
 
@@ -117,11 +119,24 @@ fn resolve_commit_id(repo: &Repository, rev: &str) -> Result<ObjectId> {
 fn run_superproject(
     config: &Config,
     repo_path: &Path,
+    work_tree: Option<&Path>,
     reporter: &Reporter,
     cancel: &CancelToken,
 ) -> Result<()> {
     let repo = discover(repo_path, &config.overrides)?;
     let commit = resolve_commit_id(&repo, &config.rev)?;
+    // As in git, submodule paths start at the top of the work tree, wherever
+    // in it git-sprig runs.
+    let basedir = match work_tree {
+        Some(work_tree) => work_tree.to_owned(),
+        None => repo.workdir().map(Path::to_owned).ok_or_else(|| {
+            anyhow!(
+                "{} is a bare repository, which has no work tree to write submodules into; \
+                 pass --basedir",
+                report::quoted(repo.git_dir().display())
+            )
+        })?,
+    };
 
     // Without a remote, git takes the superproject for its own upstream.
     let (base_url, own_upstream) = match &config.remote_url {
@@ -151,12 +166,16 @@ fn run_superproject(
         .context("cannot read .gitmodules of the superproject")?;
     let git_config = repo.config_snapshot();
     modules.configure(git_config.plumbing(), Scope::Repository);
-    let mut selection = plan::selection(&config.includes, &config.excludes)?;
+    let mut selection = plan::selection(
+        &config.includes,
+        &config.excludes,
+        prefix(&basedir).as_deref(),
+    )?;
     let planned = plan::plan(
         &scan.gitlinks,
         &modules,
         Some(&base_url),
-        &config.basedir,
+        &basedir,
         git_config.plumbing(),
         reporter,
         selection.as_mut(),
@@ -171,8 +190,8 @@ fn run_superproject(
     }
 
     // Both checked before anything is fetched.
-    let work_tree = (config.index == IndexUpdate::Stage)
-        .then(|| index::work_tree(&repo, &config.basedir))
+    let staged_tree = (config.index == IndexUpdate::Stage)
+        .then(|| index::work_tree(&repo, &basedir))
         .transpose()?;
     if config.checkouts == Checkouts::Refuse {
         refuse_checkouts(&planned)?;
@@ -183,10 +202,10 @@ fn run_superproject(
         return Ok(());
     }
 
-    std::fs::create_dir_all(&config.basedir)
-        .with_context(|| format!("cannot create {}", report::quoted(config.basedir.display())))?;
+    std::fs::create_dir_all(&basedir)
+        .with_context(|| format!("cannot create {}", report::quoted(basedir.display())))?;
 
-    let submodules: Vec<index::Submodule> = if work_tree.is_some() {
+    let submodules: Vec<index::Submodule> = if staged_tree.is_some() {
         planned
             .iter()
             .map(|planned| index::Submodule {
@@ -202,14 +221,14 @@ fn run_superproject(
         .context("cannot create temporary storage")?;
     schedule::run(
         planned,
-        &config.basedir,
+        &basedir,
         &schedule_options(config),
         &fetcher,
         reporter,
         cancel,
     )?;
 
-    if let Some(work_tree) = &work_tree {
+    if let Some(work_tree) = &staged_tree {
         index::stage(work_tree, &submodules, reporter)?;
     }
     Ok(())
@@ -224,31 +243,34 @@ struct DirectSource {
 
 fn run_direct(
     config: &Config,
-    from: &str,
+    direct: &Direct,
     reporter: &Reporter,
     cancel: &CancelToken,
 ) -> Result<()> {
+    let Direct { from, into } = direct;
+    // Patterns are relative to the root here; check them before anything is fetched.
+    plan::selection(&config.includes, &config.excludes, None)?;
     // The whole destination goes, so a checkout anywhere inside it would too.
     if config.checkouts == Checkouts::Refuse
-        && let Some(checkout) = fs::find_checkout(&config.basedir)?
+        && let Some(checkout) = fs::find_checkout(into)?
     {
-        if checkout == config.basedir {
+        if checkout == *into {
             bail!(
                 "refusing to replace {}, which is a git checkout with a .git of its own\n\
                  Replacing it discards any uncommitted or unpushed work; pass --force to do it \
                  anyway.",
-                report::quoted(config.basedir.display())
+                report::quoted(into.display())
             );
         }
         bail!(
             "refusing to replace {}, which holds the git checkout {}\n\
              Replacing it discards any uncommitted or unpushed work there; pass --force to do \
              it anyway.",
-            report::quoted(config.basedir.display()),
+            report::quoted(into.display()),
             report::quoted(checkout.display())
         );
     }
-    let source = open_direct(config, from, reporter, cancel)?;
+    let source = open_direct(config, direct, reporter, cancel)?;
     let repo = source.repository.repo();
     let local = repo.to_thread_local();
     let tree_id = local
@@ -268,7 +290,7 @@ fn run_direct(
     if config.mode == Mode::DryRun {
         return dry_run_direct(
             config,
-            from,
+            direct,
             &local,
             tree_id,
             source.commit,
@@ -277,7 +299,7 @@ fn run_direct(
         );
     }
 
-    let snapshot = Snapshot::new(&config.basedir, cancel)?;
+    let snapshot = Snapshot::new(into, cancel)?;
     let extracted = tree::extract_tree(
         repo,
         tree_id,
@@ -289,7 +311,7 @@ fn run_direct(
     .with_context(|| {
         format!(
             "cannot write the snapshot to {}",
-            report::quoted(config.basedir.display())
+            report::quoted(into.display())
         )
     })?;
     report::detail!(
@@ -326,7 +348,7 @@ fn run_direct(
     report::status!(
         reporter,
         "Repository path {}: planted {}",
-        report::quoted(config.basedir.display()),
+        report::quoted(into.display()),
         report::quoted(source.commit)
     );
     Ok(())
@@ -334,10 +356,11 @@ fn run_direct(
 
 fn open_direct(
     config: &Config,
-    from: &str,
+    direct: &Direct,
     reporter: &Reporter,
     cancel: &CancelToken,
 ) -> Result<DirectSource> {
+    let Direct { from, into } = direct;
     let root_url = gix::url::parse(gix::bstr::BStr::new(from)).with_context(|| {
         format!(
             "source repository {} is not a valid git URL or path",
@@ -365,7 +388,7 @@ fn open_direct(
     let (repository, commit, base_url) = if local_source {
         let repo = discover(Path::new(from), &config.overrides)?;
         if config.checkouts == Checkouts::Refuse {
-            refuse_enclosing_destination(&config.basedir, &repo)?;
+            refuse_enclosing_destination(into, &repo)?;
         }
         let commit = resolve_commit_id(&repo, &config.rev)?;
         let base_url = match remote_url {
@@ -465,13 +488,14 @@ fn refuse_enclosing_destination(destination: &Path, repo: &Repository) -> Result
 
 fn dry_run_direct(
     config: &Config,
-    from: &str,
+    direct: &Direct,
     repo: &Repository,
     tree_id: ObjectId,
     commit: ObjectId,
     base_url: &Url,
     reporter: &Reporter,
 ) -> Result<()> {
+    let Direct { from, into } = direct;
     let scan = tree::scan_tree(repo, tree_id).context("cannot scan the repository")?;
     let planned = plan_direct(
         config,
@@ -479,7 +503,7 @@ fn dry_run_direct(
         tree_id,
         &scan.gitlinks,
         base_url,
-        &config.basedir,
+        into,
         reporter,
     )?;
     report::status!(
@@ -488,7 +512,7 @@ fn dry_run_direct(
         report::quoted(from),
         report::quoted(&config.rev),
         report::quoted(commit),
-        report::quoted(config.basedir.display())
+        report::quoted(into.display())
     );
     report_dry_run(&planned, IndexUpdate::Leave, config.recursion, reporter);
     Ok(())
@@ -507,7 +531,7 @@ fn plan_direct(
         .context("cannot read .gitmodules of the repository")?;
     let git_config = repo.config_snapshot();
     modules.configure(git_config.plumbing(), Scope::Clone);
-    let mut selection = plan::selection(&config.includes, &config.excludes)?;
+    let mut selection = plan::selection(&config.includes, &config.excludes, None)?;
     plan::plan(
         gitlinks,
         &modules,
@@ -517,6 +541,14 @@ fn plan_direct(
         reporter,
         selection.as_mut(),
     )
+}
+
+/// Where git-sprig runs, relative to the top of the work tree, which git reads
+/// pathspecs against; `None` at the top or outside of the work tree.
+fn prefix(top: &Path) -> Option<PathBuf> {
+    let cwd = std::env::current_dir().ok()?.canonicalize().ok()?;
+    let prefix = cwd.strip_prefix(top.canonicalize().ok()?).ok()?;
+    (!prefix.as_os_str().is_empty()).then(|| prefix.to_owned())
 }
 
 fn schedule_options(config: &Config) -> schedule::Options {

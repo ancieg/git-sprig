@@ -42,9 +42,12 @@ pub struct Planned {
 }
 
 /// Build the root-level selection, or `None` when every submodule is included.
+/// Patterns are relative to `prefix`, where in the work tree git-sprig runs,
+/// as git reads them.
 pub fn selection(
     includes: &[String],
     excludes: &[String],
+    prefix: Option<&Path>,
 ) -> Result<Option<gix::pathspec::Search>> {
     if includes.is_empty() && excludes.is_empty() {
         return Ok(None);
@@ -65,7 +68,7 @@ pub fn selection(
         }))
         .collect::<Result<Vec<_>>>()?;
     Ok(Some(
-        gix::pathspec::Search::from_specs(patterns, None, Path::new(""))
+        gix::pathspec::Search::from_specs(patterns, prefix, Path::new(""))
             .context("cannot normalize submodule pathspecs")?,
     ))
 }

@@ -109,6 +109,72 @@ fn excludes_top_level_submodules_with_paths_globs_and_magic() {
     assert_eq!(std::fs::read_dir(&no_match).unwrap().count(), 0);
 }
 
+/// A clone of `two_top_levels` with empty submodule folders and a `docs`
+/// directory, as `git clone` without `--recurse-submodules` leaves it.
+fn fresh_clone(fx: &Fixture, name: &str) -> std::path::PathBuf {
+    let sup = fx.superproject();
+    if !sup.join("docs").exists() {
+        write(&sup, "docs/readme.txt", "docs\n");
+        commit_all(&sup, "docs");
+    }
+    let clone = fx.path(name);
+    git(
+        fx.root.path(),
+        &[
+            "clone",
+            "-q",
+            sup.to_str().unwrap(),
+            clone.to_str().unwrap(),
+        ],
+    );
+    clone
+}
+
+#[test]
+fn runs_from_a_subdirectory_like_git() {
+    let fx = two_top_levels();
+
+    // Submodules land at the top of the work tree, not below where it runs.
+    let clone = fresh_clone(&fx, "everything");
+    run_in(&clone.join("docs"), &[]).assert_ok();
+    assert_eq!(read(&clone.join("vendor/child/hello.txt")), "child\n");
+    assert_eq!(read(&clone.join("vendor/grand/g.txt")), "grandchild\n");
+    assert_eq!(std::fs::read_dir(clone.join("docs")).unwrap().count(), 1);
+
+    // Pathspecs are relative to where it runs, as in git.
+    let clone = fresh_clone(&fx, "relative");
+    run_in(&clone.join("vendor"), &["--", "child"]).assert_ok();
+    assert_selected_child(&clone);
+    let clone = fresh_clone(&fx, "parent");
+    run_in(&clone.join("docs"), &["--exclude", "../vendor/grand"]).assert_ok();
+    assert_selected_child(&clone);
+}
+
+#[test]
+fn a_bare_superproject_needs_a_directory_to_write_into() {
+    let fx = Fixture::new();
+    let bare = fx.path("bare.git");
+    let sup = fx.superproject();
+    git(
+        fx.root.path(),
+        &[
+            "clone",
+            "-q",
+            "--bare",
+            sup.to_str().unwrap(),
+            bare.to_str().unwrap(),
+        ],
+    );
+    let run = run_in(&bare, &[]);
+    run.assert_failed();
+    run.assert_says("bare repository");
+    assert_eq!(leftovers(&bare), Vec::<String>::new());
+    assert!(!bare.join("vendor").exists());
+
+    plant(&bare, &fx.path("out"), &[]).assert_ok();
+    assert_eq!(read(&fx.path("out/vendor/child/hello.txt")), "child\n");
+}
+
 #[test]
 fn selection_is_not_applied_inside_included_submodules() {
     let fx = two_top_levels();

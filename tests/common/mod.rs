@@ -256,7 +256,15 @@ pub fn through_git(dir: &Path, args: &[&str]) -> Run {
 }
 
 pub fn run(args: &[&str]) -> Run {
-    let out = git_sprig(args).output().expect("binary must be built");
+    run_in(Path::new("."), args)
+}
+
+/// Run git-sprig with `dir` as the current directory.
+pub fn run_in(dir: &Path, args: &[&str]) -> Run {
+    let out = git_sprig(args)
+        .current_dir(dir)
+        .output()
+        .expect("binary must be built");
     Run {
         ok: out.status.success(),
         code: out.status.code(),

@@ -23,7 +23,7 @@ use std::{num::NonZeroUsize, path::PathBuf};
 use clap::{Parser, builder::TypedValueParser};
 
 use crate::{
-    config::{Action, Checkouts, Config, IndexUpdate, Mode, Source},
+    config::{Action, Checkouts, Config, Direct, IndexUpdate, Mode, Source},
     report::Verbosity,
     schedule::Recursion,
     tree::Conversion,
@@ -77,7 +77,7 @@ pub(crate) struct Args {
     #[arg(long, alias = "rev", default_value = "HEAD", value_name = "REV")]
     pub(crate) revision: String,
 
-    /// Base directory for submodule-only mode (default: .).
+    /// Where submodule paths start in submodule-only mode (default: the top of the work tree).
     #[arg(short, long, value_name = "DIR")]
     pub(crate) basedir: Option<PathBuf>,
 
@@ -193,15 +193,16 @@ impl Args {
         if let Some(shell) = self.generate_completions {
             return Ok(Action::GenerateCompletions(shell));
         }
-        let (source, basedir) = match self.repository {
-            Some(from) => (
-                Source::Direct { from },
-                self.directory.unwrap_or_else(|| PathBuf::from(".")),
-            ),
-            None => (
-                Source::Superproject { repo: self.repo },
-                self.basedir.unwrap_or_else(|| PathBuf::from(".")),
-            ),
+        let source = match self.repository {
+            Some(from) => Source::Direct(Direct {
+                from,
+                // clap requires the destination along with the repository.
+                into: self.directory.unwrap_or_default(),
+            }),
+            None => Source::Superproject {
+                repo: self.repo,
+                work_tree: self.basedir,
+            },
         };
         // Those from `git -c` come first, so that our own -c wins, as in git.
         let mut overrides = inherited_overrides()?;
@@ -209,7 +210,6 @@ impl Args {
         Ok(Action::Plant(Box::new(Config {
             source,
             rev: self.revision,
-            basedir,
             includes: self.includes,
             excludes: self.excludes,
             remote_url: self.remote_url,
@@ -260,10 +260,10 @@ fn destination(path: &std::path::Path) -> Result<PathBuf, String> {
     Ok(path)
 }
 
+/// Only parsed here: a pattern is normalized once it is known where in the
+/// work tree it is relative to, so `../lib` works from a subdirectory.
 fn valid_pathspec(value: &str) -> Result<String, String> {
-    let pattern = gix::pathspec::parse(value.as_bytes(), gix::pathspec::Defaults::default())
-        .map_err(|err| err.to_string())?;
-    gix::pathspec::Search::from_specs([pattern], None, std::path::Path::new(""))
+    gix::pathspec::parse(value.as_bytes(), gix::pathspec::Defaults::default())
         .map(|_| value.to_owned())
         .map_err(|err| err.to_string())
 }

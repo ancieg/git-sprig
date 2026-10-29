@@ -132,8 +132,9 @@ Submodules that `.gitmodules` marks with `update = none` are skipped as well,
 as `git submodule update` skips them; `-c submodule.<name>.update=checkout`
 brings one back.
 
-**Select top-level submodules** with Git pathspecs. Put includes after `--`, or
-repeat `--exclude` to skip matching paths and globs:
+**Select top-level submodules** with Git pathspecs, relative to the current
+directory as in git. Put includes after `--`, or repeat `--exclude` to skip
+matching paths and globs:
 
 ```console
 $ git-sprig -- vendor/libfoo
@@ -179,7 +180,7 @@ $ git -c http.proxy=http://proxy.example.com:3128 sprig
 | `<REPOSITORY> <DIRECTORY>` | Materialize the complete root tree of a local or remote repository into the required destination. Cannot be combined with `-C`, `--basedir`, or `--stage`. |
 | `-C, --repo <DIR>` | The project to read submodules from. Default: the current directory. |
 | `--revision <REV>` | Which commit, branch or tag of the source to use. Default: `HEAD`. `--rev` is a compatibility alias. |
-| `-b, --basedir <DIR>` | Where to write submodules in `-C` mode. Default: the current directory. |
+| `-b, --basedir <DIR>` | Where to write submodules in `-C` mode. Default: the top of the work tree, wherever in it git-sprig runs. |
 | `[-- <PATHSPEC>...]` | Include only matching top-level submodules. Without includes, every submodule is eligible. |
 | `--exclude <PATHSPEC>` | Exclude matching top-level submodules, including glob patterns. May be repeated. |
 | `-j, --jobs <N>` | How many submodules to download at the same time. Default: the number of CPUs, at most 8. |

@@ -54,16 +54,25 @@ pub enum Mode {
 
 pub enum Source {
     /// Read gitlinks from a local superproject, leaving its own files alone.
-    Superproject { repo: PathBuf },
+    Superproject {
+        repo: PathBuf,
+        /// Where submodule paths are rooted; the top of the work tree if absent.
+        work_tree: Option<PathBuf>,
+    },
     /// Materialize the complete root tree of a local or remote repository.
-    Direct { from: String },
+    Direct(Direct),
+}
+
+pub struct Direct {
+    /// A URL or a local path.
+    pub from: String,
+    /// The destination, replaced as a whole.
+    pub into: PathBuf,
 }
 
 pub struct Config {
     pub source: Source,
     pub rev: String,
-    /// The submodule base in legacy mode, or the root destination in direct mode.
-    pub basedir: PathBuf,
     /// Top-level submodule paths to include, or all when empty.
     pub includes: Vec<String>,
     /// Top-level submodule paths to exclude.

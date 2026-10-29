@@ -1,4 +1,4 @@
-// git-sprig - materialize git submodules as plain files, without their history
+// git-sprig - materialize git repositories and submodules as plain files, without their history
 // Copyright (C) 2026  Anton Zhukharev <ancieg@altlinux.org>
 //
 // This program is free software: you can redistribute it and/or modify

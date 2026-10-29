@@ -150,6 +150,15 @@ project itself came from. If the checkout has no remote, tell git-sprig:
 $ git-sprig --remote-url https://example.com/project.git
 ```
 
+**Fetch a submodule from a mirror** by configuring its URL, which takes
+precedence over `.gitmodules` as it does for `git submodule`. In direct mode,
+only `-c` and your user or system configuration count, as for `git clone`:
+
+```console
+$ git config submodule.vendor/libfoo.url https://mirror.example.com/libfoo.git
+$ git-sprig project out -c submodule.vendor/libfoo.url=https://mirror.example.com/libfoo.git
+```
+
 **Go through a proxy**, or pass any other git setting, with `-c` before or
 after `sprig`, as with any git command:
 

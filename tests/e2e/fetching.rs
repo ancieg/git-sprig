@@ -254,6 +254,49 @@ fn falls_back_when_the_server_sends_a_different_commit() {
 }
 
 #[test]
+fn configured_urls_win_over_gitmodules_as_in_git() {
+    let fx = Fixture::new();
+    let sup = fx.superproject();
+    let mirror = fx.path("mirror/child");
+    let child = fx.path("remotes/child");
+    git(
+        fx.root.path(),
+        &[
+            "clone",
+            "-q",
+            "--mirror",
+            child.to_str().unwrap(),
+            mirror.to_str().unwrap(),
+        ],
+    );
+    git(
+        &mirror,
+        &["config", "uploadpack.allowAnySHA1InWant", "true"],
+    );
+    std::fs::rename(&child, fx.path("remotes/child-gone")).unwrap();
+    let mirror_url = format!("submodule.vendor/child.url={}", mirror.display());
+
+    // The superproject's own configuration counts, as for `git submodule`.
+    git(
+        &sup,
+        &[
+            "config",
+            "submodule.vendor/child.url",
+            mirror.to_str().unwrap(),
+        ],
+    );
+    let out = fx.path("out");
+    plant(&sup, &out, &[]).assert_ok();
+    assert_eq!(read(&out.join("vendor/child/hello.txt")), "child\n");
+
+    // A direct source's own configuration does not, as for `git clone`; -c does.
+    let source = sup.to_str().unwrap();
+    direct(source, &fx.path("direct"), "HEAD", &[]).assert_failed();
+    direct(source, &fx.path("direct"), "HEAD", &["-c", &mirror_url]).assert_ok();
+    assert_eq!(read(&fx.path("direct/vendor/child/hello.txt")), "child\n");
+}
+
+#[test]
 fn inactive_submodules_are_skipped() {
     let fx = Fixture::new();
     let sup = fx.superproject();

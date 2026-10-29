@@ -44,7 +44,7 @@ use crate::{
     report::{self, Reporter},
     snapshot::Snapshot,
     submodule::{
-        gitmodules::Modules,
+        gitmodules::{Modules, Scope},
         plan::{self, Planned},
     },
     tree::{self, Conversion},
@@ -533,14 +533,16 @@ fn nested(
         Recursion::Limited(_) | Recursion::Unlimited => {}
     }
 
-    let modules = Modules::from_tree(repo, tree_id, reporter)
+    let mut modules = Modules::from_tree(repo, tree_id, reporter)
         .with_context(|| format!("cannot read .gitmodules of {}", report::quoted(url)))?;
+    let git_config = repo.config_snapshot();
+    modules.configure(git_config.plumbing(), Scope::Clone);
     plan::plan(
         gitlinks,
         &modules,
         Some(url),
         destination,
-        repo.config_snapshot().plumbing(),
+        git_config.plumbing(),
         reporter,
         None,
     )

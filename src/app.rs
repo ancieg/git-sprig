@@ -30,7 +30,7 @@ use crate::{
     schedule::{self, Recursion},
     snapshot::Snapshot,
     submodule::{
-        gitmodules::Modules,
+        gitmodules::{Modules, Scope},
         plan::{self, Planned},
     },
     tree,
@@ -142,9 +142,10 @@ fn run_superproject(
         .context("cannot read the superproject tree")?
         .detach();
     let scan = tree::scan_tree(&repo, tree_id).context("cannot scan the superproject")?;
-    let modules = Modules::from_tree(&repo, tree_id, reporter)
+    let mut modules = Modules::from_tree(&repo, tree_id, reporter)
         .context("cannot read .gitmodules of the superproject")?;
     let git_config = repo.config_snapshot();
+    modules.configure(git_config.plumbing(), Scope::Repository);
     let mut selection = plan::selection(&config.includes, &config.excludes)?;
     let planned = plan::plan(
         &scan.gitlinks,
@@ -487,9 +488,10 @@ fn plan_direct(
     destination: &Path,
     reporter: &Reporter,
 ) -> Result<Vec<Planned>> {
-    let modules = Modules::from_tree(repo, tree_id, reporter)
+    let mut modules = Modules::from_tree(repo, tree_id, reporter)
         .context("cannot read .gitmodules of the repository")?;
     let git_config = repo.config_snapshot();
+    modules.configure(git_config.plumbing(), Scope::Clone);
     let mut selection = plan::selection(&config.includes, &config.excludes)?;
     plan::plan(
         gitlinks,

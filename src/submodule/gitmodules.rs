@@ -38,6 +38,16 @@ pub struct Entry {
     pub url: BString,
 }
 
+/// Whose `submodule.<name>.*` settings take precedence over `.gitmodules`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scope {
+    /// The superproject's own configuration too, as `git submodule` reads it.
+    Repository,
+    /// Only what a fresh clone would see: `-c`, the environment and the user's
+    /// and system files, never the configuration of the repository read from.
+    Clone,
+}
+
 #[derive(Debug, Default)]
 pub struct Modules {
     by_path: HashMap<BString, Entry>,
@@ -112,6 +122,27 @@ impl Modules {
             by_path,
             file: Some(file),
         })
+    }
+
+    /// Let `config` override `.gitmodules`, as git lets a `submodule.<name>.url`
+    /// that `git submodule init` wrote, or that points at a mirror, win.
+    pub fn configure(&mut self, config: &gix::config::File, scope: Scope) {
+        let mut in_scope = |meta: &gix::config::file::Metadata| {
+            scope == Scope::Repository
+                || !matches!(
+                    meta.source,
+                    gix::config::Source::Local | gix::config::Source::Worktree
+                )
+        };
+        for entry in self.by_path.values_mut() {
+            let key = format!("submodule.{}.url", entry.name);
+            if let Some(url) = config
+                .string_filter(key.as_str(), &mut in_scope)
+                .filter(|url| !url.is_empty())
+            {
+                entry.url = url;
+            }
+        }
     }
 
     pub fn by_path(&self, path: &Path) -> Option<&Entry> {
@@ -190,6 +221,30 @@ mod tests {
         )
         .unwrap();
         assert_eq!(modules.by_path(Path::new("vendor/x")).unwrap().name, "one");
+    }
+
+    #[test]
+    fn configured_urls_win_within_their_scope() {
+        use gix::config::Source::{Cli, Local};
+
+        let gitmodules = b"[submodule \"lib\"]\n\tpath = lib\n\turl = https://a/lib\n";
+        let config = |source: gix::config::Source| {
+            let mut text = b"[submodule \"lib\"]\n\turl = https://mirror/lib\n".to_vec();
+            gix::config::File::from_bytes_owned(
+                &mut text,
+                gix::config::file::Metadata::from(source),
+                gix::config::file::init::Options::default(),
+            )
+            .unwrap()
+        };
+        let url = |source, scope| {
+            let mut modules = Modules::from_bytes(gitmodules, &reporter()).unwrap();
+            modules.configure(&config(source), scope);
+            modules.by_path(Path::new("lib")).unwrap().url.to_string()
+        };
+        assert_eq!(url(Local, Scope::Repository), "https://mirror/lib");
+        assert_eq!(url(Local, Scope::Clone), "https://a/lib");
+        assert_eq!(url(Cli, Scope::Clone), "https://mirror/lib");
     }
 
     #[test]

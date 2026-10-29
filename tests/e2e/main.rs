@@ -46,4 +46,7 @@ pub(crate) fn set_child_url(sup: &Path, url: &str) {
         ],
     );
     commit_all(sup, "change the submodule url");
+    // Drop what `git submodule add` configured, which would win over
+    // `.gitmodules` as in git, where `git submodule sync` updates it.
+    git(sup, &["config", "--unset", "submodule.vendor/child.url"]);
 }

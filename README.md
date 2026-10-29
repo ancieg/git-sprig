@@ -171,7 +171,7 @@ $ git-sprig -c http.proxy=http://proxy.example.com:3128
 | `--max-depth <N>` | How many levels of submodules to fetch. Default: 32; 0 means no limit. The direct root does not count as a level. |
 | `--remote-url <URL>` | Where relative submodule URLs are resolved from. |
 | `-c, --config <KEY=VALUE>` | A git setting for the downloads, like `git -c`. |
-| `--raw` | Write files exactly as stored, without converting line endings. |
+| `--raw, --no-filters` | Write files exactly as stored, without line ending conversion or filters. |
 | `-f, --force` | Replace destinations even if they are or contain git checkouts. |
 | `--stage` | Replace the submodules in the project's index with their files, ready to commit. |
 | `--tempdir <DIR>` | Where to keep downloads while working. |

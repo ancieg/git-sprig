@@ -83,7 +83,7 @@ fn files_stored_whole_are_streamed_unless_they_need_converting() {
     assert_eq!(read(&out.join("vendor/sub/data.dat")), "x\ny\n");
 
     let raw = root.path().join("raw");
-    let run = plant(&sup, &raw, &["-v", "--raw"]);
+    let run = plant(&sup, &raw, &["-v", "--no-filters"]);
     run.assert_ok();
     assert!(
         run.stderr

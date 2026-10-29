@@ -94,7 +94,7 @@ pub(crate) struct Args {
     pub(crate) stage: bool,
 
     /// Write files as stored, without .gitattributes conversion.
-    #[arg(long)]
+    #[arg(long, visible_alias = "no-filters")]
     pub(crate) raw: bool,
 
     /// Do not recurse into submodules of submodules.

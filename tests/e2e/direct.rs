@@ -352,10 +352,9 @@ fn rejects_invalid_direct_arguments_before_fetching() {
     let root = tempfile::tempdir().unwrap();
     let out = root.path().join("out");
     let missing = file_url(&root.path().join("missing"));
-    let cases: [&[&str]; 5] = [
+    let cases: [&[&str]; 4] = [
         &[&missing],
         &[&missing, out.to_str().unwrap(), "--stage"],
-        &[&missing, out.to_str().unwrap(), "-C", "."],
         &[
             &missing,
             out.to_str().unwrap(),

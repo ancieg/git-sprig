@@ -55,7 +55,6 @@ pub enum Mode {
 pub enum Source {
     /// Read gitlinks from a local superproject, leaving its own files alone.
     Superproject {
-        repo: PathBuf,
         /// Where submodule paths are rooted; the top of the work tree if absent.
         work_tree: Option<PathBuf>,
     },
@@ -72,6 +71,8 @@ pub struct Direct {
 
 pub struct Config {
     pub source: Source,
+    /// Directories to change into first, in order, like `git -C`.
+    pub chdir: Vec<PathBuf>,
     pub rev: String,
     /// Top-level submodule paths to include, or all when empty.
     pub includes: Vec<String>,

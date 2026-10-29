@@ -95,9 +95,14 @@ pub(crate) fn run(config: &Config, reporter: &Reporter, cancel: &CancelToken) ->
     for warning in &config.warnings {
         report::warning!(reporter, "{warning}");
     }
+    // Like `git -C`, so every relative path given is taken from there.
+    for dir in &config.chdir {
+        std::env::set_current_dir(dir)
+            .with_context(|| format!("cannot change to {}", report::quoted(dir.display())))?;
+    }
     match &config.source {
-        Source::Superproject { repo, work_tree } => {
-            run_superproject(config, repo, work_tree.as_deref(), reporter, cancel)
+        Source::Superproject { work_tree } => {
+            run_superproject(config, work_tree.as_deref(), reporter, cancel)
         }
         Source::Direct(direct) => run_direct(config, direct, reporter, cancel),
     }
@@ -121,12 +126,11 @@ fn resolve_commit_id(repo: &Repository, rev: &str) -> Result<ObjectId> {
 
 fn run_superproject(
     config: &Config,
-    repo_path: &Path,
     work_tree: Option<&Path>,
     reporter: &Reporter,
     cancel: &CancelToken,
 ) -> Result<()> {
-    let repo = discover(repo_path, &config.overrides)?;
+    let repo = discover(Path::new("."), &config.overrides)?;
     let commit = resolve_commit_id(&repo, &config.rev)?;
     // As in git, submodule paths start at the top of the work tree, wherever
     // in it git-sprig runs.

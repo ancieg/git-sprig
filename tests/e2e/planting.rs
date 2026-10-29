@@ -174,6 +174,32 @@ fn max_depth_limits_the_nesting() {
 }
 
 #[test]
+fn dash_c_changes_directory_as_in_git() {
+    let fx = Fixture::new();
+    let sup = fx.superproject();
+    let root = fx.root.path();
+    git(root, &["clone", "-q", sup.to_str().unwrap(), "clone"]);
+
+    // Submodules go into the repository -C names, not where it ran from.
+    run_in(root, &["-C", "clone"]).assert_ok();
+    assert_eq!(read(&fx.path("clone/vendor/child/hello.txt")), "child\n");
+    assert!(!fx.path("vendor").exists());
+
+    // Repeated, each -C starts from the one before, and later paths from the last.
+    let args = ["-C", "remotes", "-C", "super", "--work-tree", "../../out"];
+    run_in(root, &args).assert_ok();
+    assert_eq!(read(&fx.path("out/vendor/child/hello.txt")), "child\n");
+
+    // In direct mode too, as `git -C <dir> clone` would.
+    run_in(root, &["-C", "remotes", "super", "../direct"]).assert_ok();
+    assert_eq!(read(&fx.path("direct/super.txt")), "superproject\n");
+
+    let run = run_in(root, &["--repo", "clone", "-n"]);
+    run.assert_ok();
+    run.assert_says("--repo is deprecated");
+}
+
+#[test]
 fn the_former_basedir_still_works_with_a_warning() {
     let fx = Fixture::new();
     let sup = fx.superproject();

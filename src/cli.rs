@@ -48,15 +48,18 @@ use crate::{
     reason = "a flat mirror of the command line; the program works from Config instead"
 )]
 pub(crate) struct Args {
-    /// Superproject to read the submodules from.
-    #[arg(short = 'C', long, default_value = ".", value_name = "DIR")]
-    pub(crate) repo: PathBuf,
+    /// Run as if started in DIR, like `git -C`; may be repeated.
+    #[arg(short = 'C', value_name = "DIR", action = clap::ArgAction::Append)]
+    pub(crate) chdir: Vec<PathBuf>,
+
+    /// The former name of -C, which now changes directory as git does.
+    #[arg(long, value_name = "DIR", hide = true, conflicts_with = "chdir")]
+    pub(crate) repo: Option<PathBuf>,
 
     /// Local or remote repository to materialize completely.
     #[arg(
         value_name = "REPOSITORY",
         requires = "directory",
-        conflicts_with = "repo",
         conflicts_with = "stage",
         conflicts_with = "basedir",
         conflicts_with = "work_tree"
@@ -208,6 +211,10 @@ impl Args {
         if self.basedir.is_some() {
             warnings.push("-b and --basedir are deprecated; use --work-tree".to_owned());
         }
+        if self.repo.is_some() {
+            warnings
+                .push("--repo is deprecated; use -C, which changes directory as in git".to_owned());
+        }
         let source = match self.repository {
             Some(from) => Source::Direct(Direct {
                 from,
@@ -215,7 +222,6 @@ impl Args {
                 into: self.directory.unwrap_or_default(),
             }),
             None => Source::Superproject {
-                repo: self.repo,
                 work_tree: self.work_tree.or(self.basedir),
             },
         };
@@ -224,6 +230,7 @@ impl Args {
         overrides.extend(self.config);
         Ok(Action::Plant(Box::new(Config {
             source,
+            chdir: self.chdir.into_iter().chain(self.repo).collect(),
             warnings,
             rev: self.revision,
             includes: self.includes,

@@ -336,6 +336,9 @@ fn open_direct(
         .context("cannot create temporary storage")?;
     let (repository, commit) = if local_source {
         let repo = discover_with_overrides(Path::new(from), &config.overrides)?;
+        if config.checkouts == Checkouts::Refuse {
+            refuse_enclosing_destination(&config.basedir, &repo)?;
+        }
         let commit = resolve_commit_id(&repo, &config.rev)?;
         (RootRepository::Local(repo.into_sync()), commit)
     } else {
@@ -364,6 +367,40 @@ fn open_direct(
         base_url,
         fetcher,
     })
+}
+
+/// Replacing a destination that holds the local source deletes the source
+/// too, along with whatever work is in it. A linked worktree needs its
+/// common directory as well, which may live elsewhere.
+fn refuse_enclosing_destination(destination: &Path, repo: &Repository) -> Result<()> {
+    let canonical = match std::fs::canonicalize(destination) {
+        Ok(canonical) => canonical,
+        // A destination that does not exist yet holds nothing.
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => {
+            return Err(err).with_context(|| {
+                format!("cannot inspect {}", report::quoted(destination.display()))
+            });
+        }
+    };
+    let parts = [
+        repo.workdir(),
+        Some(repo.git_dir()),
+        Some(repo.common_dir()),
+    ];
+    for part in parts.into_iter().flatten() {
+        let part = std::fs::canonicalize(part)
+            .with_context(|| format!("cannot inspect {}", report::quoted(part.display())))?;
+        if part.starts_with(&canonical) {
+            bail!(
+                "refusing to replace {}, which contains the source repository\n\
+                 Replacing it deletes the source and any uncommitted or unpushed work in \
+                 it; pass --force to do it anyway.",
+                report::quoted(destination.display())
+            );
+        }
+    }
+    Ok(())
 }
 
 fn dry_run_direct(

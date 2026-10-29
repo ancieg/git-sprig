@@ -189,9 +189,10 @@ $ git-sprig -c http.proxy=http://proxy.example.com:3128
   project's own files are never touched, except the index and `.gitmodules`
   when you pass `--stage`.
 - **Existing checkouts are protected.** If a root destination or submodule
-  folder is a real git checkout with its own `.git`, git-sprig stops before
-  changing anything, so you can't lose work by accident. Pass `--force` to
-  replace it anyway.
+  folder is a real git checkout with its own `.git`, or a root destination
+  holds the local source repository, git-sprig stops before changing
+  anything, so you can't lose work by accident. Pass `--force` to replace it
+  anyway.
 - **Nothing is left half-done.** A destination is swapped in only after its
   complete tree has been prepared. In direct mode this includes all requested
   submodules. If a download fails or you press Ctrl-C, the old contents stay as

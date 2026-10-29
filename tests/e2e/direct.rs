@@ -211,6 +211,37 @@ fn protects_a_destination_checkout_unless_forced() {
 }
 
 #[test]
+fn protects_a_destination_holding_the_local_source_unless_forced() {
+    let root = tempfile::tempdir().unwrap();
+    let out = root.path().join("out");
+    let repo = out.join("src");
+    init_repo(&repo);
+    write(&repo, "source.txt", "source\n");
+    commit_all(&repo, "source");
+    write(&repo, "wip.txt", "uncommitted\n");
+    // Only the worktree is outside; its repository is inside the destination.
+    let worktree = root.path().join("worktree");
+    git(
+        &repo,
+        &["worktree", "add", "-q", worktree.to_str().unwrap()],
+    );
+
+    for source in [&repo, &worktree] {
+        let run = direct(source.to_str().unwrap(), &out, "HEAD", &[]);
+        run.assert_failed();
+        run.assert_says("contains the source repository");
+        run.assert_says("--force");
+        assert_eq!(read(&repo.join("wip.txt")), "uncommitted\n");
+        assert!(repo.join(".git").is_dir());
+        assert_eq!(leftovers(root.path()), Vec::<String>::new());
+    }
+
+    direct(repo.to_str().unwrap(), &out, "HEAD", &["--force"]).assert_ok();
+    assert_eq!(read(&out.join("source.txt")), "source\n");
+    assert!(!out.join("src").exists());
+}
+
+#[test]
 fn dry_run_reports_the_root_without_touching_the_destination() {
     let fx = Fixture::new();
     let sup = fx.superproject();

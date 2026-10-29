@@ -60,6 +60,11 @@ pub(super) fn run(
         report_dry_run(&planned, config.index, config.recursion, reporter);
         return Ok(());
     }
+    let jobs = jobs(
+        config.jobs,
+        repo.config_snapshot().plumbing(),
+        Scope::Repository,
+    )?;
 
     std::fs::create_dir_all(&work_tree)
         .with_context(|| format!("cannot create {}", report::quoted(work_tree.display())))?;
@@ -76,11 +81,6 @@ pub(super) fn run(
         Vec::new()
     };
 
-    let jobs = jobs(
-        config.jobs,
-        repo.config_snapshot().plumbing(),
-        Scope::Repository,
-    );
     let fetcher = Fetcher::new(config.tempdir.clone(), config.overrides.clone(), cancel)
         .context("cannot create temporary storage")?;
     schedule::run(

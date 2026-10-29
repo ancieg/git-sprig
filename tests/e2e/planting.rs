@@ -405,6 +405,24 @@ fn quiet_prints_nothing_but_errors() {
 }
 
 #[test]
+fn a_fetch_jobs_setting_that_is_no_count_stops_before_writing() {
+    let fx = Fixture::new();
+    let sup = fx.superproject();
+    let lots = ["-c", "submodule.fetchJobs=lots"];
+
+    let out = fx.path("out");
+    let run = plant(&sup, &out, &lots);
+    run.assert_code(128);
+    run.assert_says("submodule.fetchJobs");
+    assert!(!out.exists());
+
+    let out = fx.path("direct");
+    direct(sup.to_str().unwrap(), &out, "HEAD", &lots).assert_code(128);
+    assert!(!out.exists());
+    assert_eq!(leftovers(fx.root.path()), Vec::<String>::new());
+}
+
+#[test]
 fn outside_a_repository_it_says_so_as_git_does() {
     let root = tempfile::tempdir().unwrap();
     let output = git_sprig(&[])

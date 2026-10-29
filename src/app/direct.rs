@@ -211,6 +211,11 @@ fn plant(
     let repo = root.repository.repo();
     let local = repo.to_thread_local();
     let tree_id = tree_of(&local, root.commit)?;
+    let jobs = jobs(
+        config.jobs,
+        local.config_snapshot().plumbing(),
+        Scope::Clone,
+    )?;
     let snapshot = Snapshot::new(into, cancel)?;
     let extracted = tree::extract_tree(
         repo,
@@ -242,11 +247,6 @@ fn plant(
         snapshot.path(),
         reporter,
     )?;
-    let jobs = jobs(
-        config.jobs,
-        local.config_snapshot().plumbing(),
-        Scope::Clone,
-    );
     drop(local);
 
     schedule::run(

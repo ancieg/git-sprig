@@ -23,7 +23,7 @@ mod superproject;
 
 use std::num::NonZeroUsize;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 
 use crate::{
     cancel::CancelToken,
@@ -61,20 +61,23 @@ fn schedule_options(config: &Config, jobs: NonZeroUsize) -> schedule::Options {
 /// How many submodules to fetch at once: -j, else `submodule.fetchJobs`, as
 /// git reads them, where 0 asks for the default. Fetches mostly wait on the
 /// network, so by default one runs per CPU; the cap of eight keeps a run from
-/// hammering one server.
-fn jobs(given: Option<u16>, config: &gix::config::File, scope: Scope) -> NonZeroUsize {
+/// hammering one server. Like git, a setting that is no count is an error.
+fn jobs(given: Option<u16>, config: &gix::config::File, scope: Scope) -> Result<NonZeroUsize> {
     let wanted = match given {
         Some(given) => usize::from(given),
-        None => config
+        None => match config
             .integer_filter("submodule.fetchJobs", |meta| scope.admits(meta))
-            .ok()
-            .flatten()
-            .and_then(|jobs| usize::try_from(jobs).ok())
-            .unwrap_or(0),
+            .context("bad numeric config value for submodule.fetchJobs")?
+        {
+            Some(jobs) => usize::try_from(jobs).map_err(|_| {
+                anyhow!("negative values are not allowed for submodule.fetchJobs: {jobs}")
+            })?,
+            None => 0,
+        },
     };
-    NonZeroUsize::new(wanted)
+    Ok(NonZeroUsize::new(wanted)
         .or_else(|| NonZeroUsize::new(available_cpus().min(8)))
-        .unwrap_or(NonZeroUsize::MIN)
+        .unwrap_or(NonZeroUsize::MIN))
 }
 
 fn report_dry_run(
@@ -137,12 +140,19 @@ mod tests {
         let given = config("[submodule]\n\tfetchJobs = 3\n", Cli);
         let zero = config("[submodule]\n\tfetchJobs = 0\n", Cli);
 
-        assert_eq!(jobs(Some(5), &local, Scope::Repository), n(5));
-        assert_eq!(jobs(Some(0), &local, Scope::Repository), default);
-        assert_eq!(jobs(None, &local, Scope::Repository), n(2));
-        assert_eq!(jobs(None, &local, Scope::Clone), default);
-        assert_eq!(jobs(None, &given, Scope::Clone), n(3));
-        assert_eq!(jobs(None, &zero, Scope::Clone), default);
-        assert_eq!(jobs(None, &unset, Scope::Repository), default);
+        assert_eq!(jobs(Some(5), &local, Scope::Repository).unwrap(), n(5));
+        assert_eq!(jobs(Some(0), &local, Scope::Repository).unwrap(), default);
+        assert_eq!(jobs(None, &local, Scope::Repository).unwrap(), n(2));
+        assert_eq!(jobs(None, &local, Scope::Clone).unwrap(), default);
+        assert_eq!(jobs(None, &given, Scope::Clone).unwrap(), n(3));
+        assert_eq!(jobs(None, &zero, Scope::Clone).unwrap(), default);
+        assert_eq!(jobs(None, &unset, Scope::Repository).unwrap(), default);
+
+        // As in git, a setting that is no count is an error, unless -j decides.
+        let words = config("[submodule]\n\tfetchJobs = lots\n", Cli);
+        let negative = config("[submodule]\n\tfetchJobs = -1\n", Cli);
+        assert!(jobs(None, &words, Scope::Clone).is_err());
+        assert!(jobs(None, &negative, Scope::Clone).is_err());
+        assert_eq!(jobs(Some(4), &words, Scope::Clone).unwrap(), n(4));
     }
 }

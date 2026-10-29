@@ -49,6 +49,25 @@ fn discover(at: &Path, overrides: &[String]) -> Result<Repository> {
     )
 }
 
+/// The superproject, found as git finds it: through `GIT_DIR` and
+/// `GIT_WORK_TREE` if they are set, as `git --git-dir` and `git --work-tree`
+/// set them, and upwards from the current directory otherwise.
+fn discover_superproject(overrides: &[String]) -> Result<Repository> {
+    let options = gix::open::Options::default().cli_overrides(overrides.iter().map(String::as_str));
+    map_discover_error(
+        Path::new("."),
+        ThreadSafeRepository::discover_with_environment_overrides_opts(
+            ".",
+            gix::discover::upwards::Options::default(),
+            gix::sec::trust::Mapping {
+                full: options.clone(),
+                reduced: options,
+            },
+        )
+        .map(Into::into),
+    )
+}
+
 /// git's own wording for the two ordinary cases; gix states them again in its
 /// own words, naming the path a second time.
 fn map_discover_error(
@@ -130,7 +149,7 @@ fn run_superproject(
     reporter: &Reporter,
     cancel: &CancelToken,
 ) -> Result<()> {
-    let repo = discover(Path::new("."), &config.overrides)?;
+    let repo = discover_superproject(&config.overrides)?;
     let commit = resolve_commit_id(&repo, &config.rev)?;
     // As in git, submodule paths start at the top of the work tree, wherever
     // in it git-sprig runs.

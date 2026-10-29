@@ -200,6 +200,27 @@ fn dash_c_changes_directory_as_in_git() {
 }
 
 #[test]
+fn git_dir_and_work_tree_given_to_git_are_honored() {
+    let fx = Fixture::new();
+    let sup = fx.superproject();
+    let out = fx.path("out");
+    std::fs::create_dir(&out).unwrap();
+
+    // git hands them on as GIT_DIR and GIT_WORK_TREE.
+    let git_dir = sup.join(".git");
+    let args = [
+        "--git-dir",
+        git_dir.to_str().unwrap(),
+        "--work-tree",
+        out.to_str().unwrap(),
+        "sprig",
+    ];
+    through_git(fx.root.path(), &args).assert_ok();
+    assert_eq!(read(&out.join("vendor/child/hello.txt")), "child\n");
+    assert!(sup.join("vendor/child/.git").exists());
+}
+
+#[test]
 fn the_former_basedir_still_works_with_a_warning() {
     let fx = Fixture::new();
     let sup = fx.superproject();

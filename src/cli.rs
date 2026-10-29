@@ -147,15 +147,10 @@ pub(crate) struct Args {
     #[arg(long, value_name = "DIR")]
     pub(crate) tempdir: Option<PathBuf>,
 
-    /// Number of submodules fetched at the same time (default: CPUs, at most 8).
-    #[arg(
-        short,
-        long,
-        default_value_t = default_jobs(),
-        value_name = "N",
-        value_parser = clap::value_parser!(u16).range(1..)
-    )]
-    pub(crate) jobs: u16,
+    /// Number of submodules fetched at the same time, 0 for the default
+    /// [default: submodule.fetchJobs, or the number of CPUs up to 8].
+    #[arg(short, long, value_name = "N")]
+    pub(crate) jobs: Option<u16>,
 
     /// Show what would be fetched without changing anything.
     #[arg(short = 'n', long)]
@@ -183,12 +178,6 @@ pub(crate) struct Args {
         help_heading = "Installation"
     )]
     pub(crate) generate_completions: Option<generate::CompletionShell>,
-}
-
-/// Fetches mostly wait on the network, so they gain from running side by side;
-/// the cap keeps a run from hammering one server.
-pub(crate) fn default_jobs() -> u16 {
-    u16::try_from(crate::app::available_cpus().min(8)).unwrap_or(8)
 }
 
 impl Args {
@@ -270,8 +259,7 @@ impl Args {
             remote_url: self.remote_url,
             overrides,
             tempdir: self.tempdir,
-            // clap keeps --jobs in 1..=u16::MAX, so it is never zero.
-            jobs: NonZeroUsize::new(usize::from(self.jobs)).unwrap_or(NonZeroUsize::MIN),
+            jobs: self.jobs,
             recursion: recursion(self.no_recursive, self.max_depth),
             submodules: if self.no_recurse_submodules {
                 Submodules::Skip

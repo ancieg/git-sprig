@@ -18,7 +18,7 @@
 //! rather than from clap's flat `Args`, so intent is in the types and each
 //! setting is decided in one place ([`crate::cli`]).
 
-use std::{num::NonZeroUsize, path::PathBuf};
+use std::path::PathBuf;
 
 use crate::{
     cli::generate::CompletionShell, report::Verbosity, schedule::Recursion, tree::Conversion,
@@ -90,7 +90,8 @@ pub struct Config {
     /// `key=value` pairs for the fetches, like `git -c`.
     pub overrides: Vec<String>,
     pub tempdir: Option<PathBuf>,
-    pub jobs: NonZeroUsize,
+    /// From -j: 0 asks for the default, and `None` for `submodule.fetchJobs`.
+    pub jobs: Option<u16>,
     pub recursion: Recursion,
     pub submodules: Submodules,
     pub conversion: Conversion,

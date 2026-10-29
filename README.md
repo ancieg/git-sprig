@@ -185,7 +185,7 @@ $ git -c http.proxy=http://proxy.example.com:3128 sprig
 | `--exclude <PATHSPEC>` | Exclude matching top-level submodules, including glob patterns. May be repeated. |
 | `--recurse-submodules[=<PATHSPEC>]` | Materialize submodules, as by default, like `git clone --recurse-submodules`; a pathspec limits the top-level ones, as after `--`. |
 | `--no-recurse-submodules` | Export `<REPOSITORY>` alone, without its submodules. |
-| `-j, --jobs <N>` | How many submodules to download at the same time. Default: the number of CPUs, at most 8. |
+| `-j, --jobs <N>` | How many submodules to download at the same time; 0 picks the default. Default: `submodule.fetchJobs` as for git, or else the number of CPUs, at most 8. |
 | `--no-recursive` | Don't go into submodules of submodules. |
 | `--max-depth <N>` | How many levels of submodules to fetch. Default: 32; 0 means no limit. The direct root does not count as a level. |
 | `--remote-url <URL>` | Where relative submodule URLs are resolved from. Default: the remote, or the project itself without one, or `<REPOSITORY>`. |

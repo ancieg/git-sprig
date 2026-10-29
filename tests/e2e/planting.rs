@@ -478,7 +478,7 @@ fn exit_status_follows_git() {
 
     let usage: [&[&str]; 3] = [
         &["--bogus"],
-        &["--jobs", "0"],
+        &["--jobs", "-1"],
         &["--generate-man", "--stage"],
     ];
     for args in usage {
@@ -539,6 +539,7 @@ fn dry_run_output_is_exactly_the_top_level_fetch() {
 #[test]
 fn jobs_one_reports_in_tree_order() {
     let fx = Fixture::new();
+    plant(&fx.superproject(), &fx.path("default"), &["-j", "0"]).assert_ok();
     let run = plant(&fx.superproject(), &fx.path("out"), &["-j", "1"]);
     run.assert_ok();
     let lines: Vec<&str> = run.stderr.lines().collect();

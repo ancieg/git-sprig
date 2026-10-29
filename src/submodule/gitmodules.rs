@@ -40,7 +40,8 @@ pub struct Entry {
     pub update: Option<BString>,
 }
 
-/// Whose `submodule.<name>.*` settings take precedence over `.gitmodules`.
+/// Whose `submodule.*` settings count, such as those that take precedence
+/// over `.gitmodules`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Scope {
     /// The superproject's own configuration too, as `git submodule` reads it.
@@ -48,6 +49,17 @@ pub enum Scope {
     /// Only what a fresh clone would see: `-c`, the environment and the user's
     /// and system files, never the configuration of the repository read from.
     Clone,
+}
+
+impl Scope {
+    /// Whether settings from where `meta` describes count in this scope.
+    pub fn admits(self, meta: &gix::config::file::Metadata) -> bool {
+        self == Scope::Repository
+            || !matches!(
+                meta.source,
+                gix::config::Source::Local | gix::config::Source::Worktree
+            )
+    }
 }
 
 #[derive(Debug, Default)]
@@ -138,13 +150,7 @@ impl Modules {
     /// that `git submodule init` wrote, or that points at a mirror, win, and a
     /// `submodule.<name>.update` bring back a submodule `.gitmodules` leaves out.
     pub fn configure(&mut self, config: &gix::config::File, scope: Scope) {
-        let mut in_scope = |meta: &gix::config::file::Metadata| {
-            scope == Scope::Repository
-                || !matches!(
-                    meta.source,
-                    gix::config::Source::Local | gix::config::Source::Worktree
-                )
-        };
+        let mut in_scope = |meta: &gix::config::file::Metadata| scope.admits(meta);
         for entry in self.by_path.values_mut() {
             let key = format!("submodule.{}.url", entry.name);
             if let Some(url) = config

@@ -16,7 +16,10 @@
 
 //! One run of git-sprig: resolve the revision, plan, check, plant and stage.
 
-use std::path::{Component, Path, PathBuf};
+use std::{
+    num::NonZeroUsize,
+    path::{Component, Path, PathBuf},
+};
 
 use anyhow::{Context, Result, anyhow, bail};
 use gix::{ObjectId, Repository, ThreadSafeRepository, Url};
@@ -248,7 +251,10 @@ fn run_superproject(
     schedule::run(
         planned,
         &basedir,
-        &schedule_options(config),
+        &schedule_options(
+            config,
+            jobs(config.jobs, git_config.plumbing(), Scope::Repository),
+        ),
         &fetcher,
         reporter,
         cancel,
@@ -276,25 +282,8 @@ fn run_direct(
     let Direct { from, into } = direct;
     // Patterns are relative to the root here; check them before anything is fetched.
     plan::selection(&config.includes, &config.excludes, None)?;
-    // The whole destination goes, so a checkout anywhere inside it would too.
-    if config.checkouts == Checkouts::Refuse
-        && let Some(checkout) = fs::find_checkout(into)?
-    {
-        if checkout == *into {
-            bail!(
-                "refusing to replace {}, which is a git checkout with a .git of its own\n\
-                 Replacing it discards any uncommitted or unpushed work; pass --force to do it \
-                 anyway.",
-                report::quoted(into.display())
-            );
-        }
-        bail!(
-            "refusing to replace {}, which holds the git checkout {}\n\
-             Replacing it discards any uncommitted or unpushed work there; pass --force to do \
-             it anyway.",
-            report::quoted(into.display()),
-            report::quoted(checkout.display())
-        );
+    if config.checkouts == Checkouts::Refuse {
+        refuse_holding_checkouts(into)?;
     }
     let source = open_direct(config, direct, reporter, cancel)?;
     let repo = source.repository.repo();
@@ -356,6 +345,11 @@ fn run_direct(
         snapshot.path(),
         reporter,
     )?;
+    let jobs = jobs(
+        config.jobs,
+        local.config_snapshot().plumbing(),
+        Scope::Clone,
+    );
     drop(local);
 
     let fetcher = source
@@ -365,7 +359,7 @@ fn run_direct(
     schedule::run(
         planned,
         snapshot.path(),
-        &schedule_options(config),
+        &schedule_options(config, jobs),
         fetcher,
         reporter,
         cancel,
@@ -478,6 +472,28 @@ fn local_url(repo: &Repository) -> Result<Url> {
         .with_context(|| format!("cannot use {} as a URL", report::quoted(folded.display())))
 }
 
+/// The whole destination goes, so a checkout anywhere inside it would too.
+fn refuse_holding_checkouts(destination: &Path) -> Result<()> {
+    let Some(checkout) = fs::find_checkout(destination)? else {
+        return Ok(());
+    };
+    if checkout == destination {
+        bail!(
+            "refusing to replace {}, which is a git checkout with a .git of its own\n\
+             Replacing it discards any uncommitted or unpushed work; pass --force to do it \
+             anyway.",
+            report::quoted(destination.display())
+        );
+    }
+    bail!(
+        "refusing to replace {}, which holds the git checkout {}\n\
+         Replacing it discards any uncommitted or unpushed work there; pass --force to do it \
+         anyway.",
+        report::quoted(destination.display()),
+        report::quoted(checkout.display())
+    );
+}
+
 /// Replacing a destination that holds the local source deletes the source
 /// too, along with whatever work is in it. A linked worktree needs its
 /// common directory as well, which may live elsewhere.
@@ -580,14 +596,33 @@ fn prefix(top: &Path) -> Option<PathBuf> {
     (!prefix.as_os_str().is_empty()).then(|| prefix.to_owned())
 }
 
-fn schedule_options(config: &Config) -> schedule::Options {
+fn schedule_options(config: &Config, jobs: NonZeroUsize) -> schedule::Options {
     // Past eight threads, writing gets no faster.
     schedule::Options {
         conversion: config.conversion,
         recursion: config.recursion,
-        jobs: config.jobs,
+        jobs,
         write_threads: available_cpus().min(8),
     }
+}
+
+/// How many submodules to fetch at once: -j, else `submodule.fetchJobs`, as
+/// git reads them, where 0 asks for the default. Fetches mostly wait on the
+/// network, so by default one runs per CPU; the cap of eight keeps a run from
+/// hammering one server.
+fn jobs(given: Option<u16>, config: &gix::config::File, scope: Scope) -> NonZeroUsize {
+    let wanted = match given {
+        Some(given) => usize::from(given),
+        None => config
+            .integer_filter("submodule.fetchJobs", |meta| scope.admits(meta))
+            .ok()
+            .flatten()
+            .and_then(|jobs| usize::try_from(jobs).ok())
+            .unwrap_or(0),
+    };
+    NonZeroUsize::new(wanted)
+        .or_else(|| NonZeroUsize::new(available_cpus().min(8)))
+        .unwrap_or(NonZeroUsize::MIN)
 }
 
 /// Replacing a submodule checkout discards whatever work is in it.
@@ -653,4 +688,38 @@ fn default_remote_url(repo: &Repository) -> Option<Url> {
                 .url(gix::remote::Direction::Fetch)
                 .map(ToOwned::to_owned)
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn jobs_follow_dash_j_then_fetch_jobs_as_in_git() {
+        use gix::config::Source::{Cli, Local};
+
+        let config = |text: &str, source| {
+            let mut text = text.as_bytes().to_vec();
+            gix::config::File::from_bytes_owned(
+                &mut text,
+                gix::config::file::Metadata::from(source),
+                gix::config::file::init::Options::default(),
+            )
+            .unwrap()
+        };
+        let n = |n| NonZeroUsize::new(n).unwrap();
+        let default = n(available_cpus().min(8));
+        let unset = config("", Local);
+        let local = config("[submodule]\n\tfetchJobs = 2\n", Local);
+        let given = config("[submodule]\n\tfetchJobs = 3\n", Cli);
+        let zero = config("[submodule]\n\tfetchJobs = 0\n", Cli);
+
+        assert_eq!(jobs(Some(5), &local, Scope::Repository), n(5));
+        assert_eq!(jobs(Some(0), &local, Scope::Repository), default);
+        assert_eq!(jobs(None, &local, Scope::Repository), n(2));
+        assert_eq!(jobs(None, &local, Scope::Clone), default);
+        assert_eq!(jobs(None, &given, Scope::Clone), n(3));
+        assert_eq!(jobs(None, &zero, Scope::Clone), default);
+        assert_eq!(jobs(None, &unset, Scope::Repository), default);
+    }
 }

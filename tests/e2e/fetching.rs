@@ -297,6 +297,14 @@ fn inactive_submodules_are_skipped() {
         "grandchild\n"
     );
     assert!(!out.join("vendor/grand/g.txt").exists());
+
+    // -c applies to the superproject, like `git -c`.
+    git(&clone, &["config", "--unset", "submodule.active"]);
+    let out = fx.path("out-by-override");
+    let run = plant(&clone, &out, &["-c", "submodule.vendor/grand.active=false"]);
+    run.assert_ok();
+    assert_eq!(read(&out.join("vendor/child/hello.txt")), "child\n");
+    assert!(!out.join("vendor/grand/g.txt").exists());
 }
 
 /// A server that cannot be reached fails before the commit is asked for, so

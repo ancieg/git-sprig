@@ -109,7 +109,7 @@ pub(crate) struct Args {
     #[arg(long, value_name = "URL")]
     pub(crate) remote_url: Option<String>,
 
-    /// Configuration for the fetches, like `git -c`.
+    /// Set a git configuration value for this run, like `git -c`.
     #[arg(short = 'c', long = "config", value_name = "KEY=VALUE")]
     pub(crate) config: Vec<String>,
 

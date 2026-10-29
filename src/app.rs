@@ -36,13 +36,9 @@ use crate::{
     tree,
 };
 
-/// git's own wording for the two ordinary cases; gix states them again in its
-/// own words, naming the path a second time.
-fn discover(at: &Path) -> Result<Repository> {
-    map_discover_error(at, gix::discover(at))
-}
-
-fn discover_with_overrides(at: &Path, overrides: &[String]) -> Result<Repository> {
+/// Open the repository at or above `at`, with the `-c` settings applied as
+/// `git -c` applies them.
+fn discover(at: &Path, overrides: &[String]) -> Result<Repository> {
     map_discover_error(
         at,
         gix::discover_opts(
@@ -53,6 +49,8 @@ fn discover_with_overrides(at: &Path, overrides: &[String]) -> Result<Repository
     )
 }
 
+/// git's own wording for the two ordinary cases; gix states them again in its
+/// own words, naming the path a second time.
 fn map_discover_error(
     at: &Path,
     result: std::result::Result<Repository, gix::discover::Error>,
@@ -122,7 +120,7 @@ fn run_superproject(
     reporter: &Reporter,
     cancel: &CancelToken,
 ) -> Result<()> {
-    let repo = discover(repo_path)?;
+    let repo = discover(repo_path, &config.overrides)?;
     let commit = resolve_commit_id(&repo, &config.rev)?;
 
     let base_url = match &config.remote_url {
@@ -351,7 +349,7 @@ fn open_direct(
         .transpose()
         .context("cannot create temporary storage")?;
     let (repository, commit, base_url) = if local_source {
-        let repo = discover_with_overrides(Path::new(from), &config.overrides)?;
+        let repo = discover(Path::new(from), &config.overrides)?;
         if config.checkouts == Checkouts::Refuse {
             refuse_enclosing_destination(&config.basedir, &repo)?;
         }

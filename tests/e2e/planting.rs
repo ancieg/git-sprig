@@ -331,7 +331,7 @@ fn an_older_revision_can_be_materialized() {
     git(&sup.join("vendor/child"), &["checkout", "-q", "FETCH_HEAD"]);
     commit_all(&sup, "bump");
 
-    let run = plant(&sup, &out, &["--rev", &old]);
+    let run = plant(&sup, &out, &["--revision", &old]);
     run.assert_ok();
     assert_eq!(read(&out.join("vendor/child/hello.txt")), "child\n");
 
@@ -563,7 +563,7 @@ fn errors_name_no_rust_source_locations() {
         ("nope", "cannot resolve revision 'nope'"),
         ("HEAD:.gitmodules", "does not point at a commit"),
     ] {
-        let run = plant(&fx.superproject(), &fx.path("out"), &["--rev", rev]);
+        let run = plant(&fx.superproject(), &fx.path("out"), &["--revision", rev]);
         run.assert_code(128);
         run.assert_says(expected);
         run.assert_no_source_locations();

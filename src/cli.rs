@@ -74,13 +74,7 @@ pub(crate) struct Args {
 
     /// Commit, branch or tag to use [default: the index, as for `git submodule update`,
     /// or HEAD of a REPOSITORY].
-    #[arg(
-        short = 'b',
-        long,
-        alias = "rev",
-        visible_alias = "branch",
-        value_name = "REV"
-    )]
+    #[arg(short = 'b', long, visible_alias = "branch", value_name = "REV")]
     pub(crate) revision: Option<String>,
 
     /// Where submodule paths start in submodule-only mode (default: the top of the work tree).

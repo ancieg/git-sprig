@@ -105,8 +105,6 @@ printf '%s\n' "${{COMPREPLY[@]}}"
     let revisions = [
         "git sprig --revision=ma",
         "git sprig --revision ma",
-        "git sprig --rev=ma",
-        "git sprig --rev ma",
         "git sprig --branch=ma",
         "git sprig -b ma",
     ]

@@ -179,7 +179,7 @@ $ git -c http.proxy=http://proxy.example.com:3128 sprig
 |---|---|
 | `<REPOSITORY> <DIRECTORY>` | Materialize the complete root tree of a local or remote repository into the required destination. Cannot be combined with `--work-tree` or `--stage`. |
 | `-C <DIR>` | Run as if git-sprig was started in `<DIR>`, like `git -C`. May be repeated. |
-| `-b, --revision <REV>` | Which commit, branch or tag of the source to use. Default: the index, as for `git submodule update`, or `HEAD` of `<REPOSITORY>`. `--branch` names it as in `git clone`; `--rev` is a compatibility alias. |
+| `-b, --revision <REV>` | Which commit, branch or tag of the source to use. Default: the index, as for `git submodule update`, or `HEAD` of `<REPOSITORY>`. `--branch` names it as in `git clone`. |
 | `--work-tree <DIR>` | Where to write submodules without `<REPOSITORY>`. Default: the top of the work tree, wherever in it git-sprig runs; `git --git-dir=… --work-tree=… sprig` works as in git. |
 | `[-- <PATHSPEC>...]` | Include only matching top-level submodules. Without includes, every submodule is eligible. |
 | `--exclude <PATHSPEC>` | Exclude matching top-level submodules, including glob patterns. May be repeated. |

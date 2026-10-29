@@ -80,7 +80,8 @@ pub struct Config {
     pub source: Source,
     /// Directories to change into first, in order, like `git -C`.
     pub chdir: Vec<PathBuf>,
-    pub rev: String,
+    /// The revision asked for; without one, submodule-only mode reads the index.
+    pub rev: Option<String>,
     /// Top-level submodule paths to include, or all when empty.
     pub includes: Vec<String>,
     /// Top-level submodule paths to exclude.
@@ -101,4 +102,11 @@ pub struct Config {
     pub verbosity: Verbosity,
     /// About the command line, such as deprecated options; printed first.
     pub warnings: Vec<String>,
+}
+
+impl Config {
+    /// The revision of a direct source: the one asked for, or `HEAD`.
+    pub fn direct_rev(&self) -> &str {
+        self.rev.as_deref().unwrap_or("HEAD")
+    }
 }

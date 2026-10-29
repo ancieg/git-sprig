@@ -146,6 +146,61 @@ fn resolve_commit_id(repo: &Repository, rev: &str) -> Result<ObjectId> {
         .id)
 }
 
+/// The gitlinks of `rev` and the `.gitmodules` committed alongside them.
+fn pinned_in_commit(
+    repo: &Repository,
+    rev: &str,
+    reporter: &Reporter,
+) -> Result<(Vec<tree::Gitlink>, Modules)> {
+    let tree_id = repo
+        .find_commit(resolve_commit_id(repo, rev)?)
+        .context("cannot read the resolved commit")?
+        .tree_id()
+        .context("cannot read the superproject tree")?
+        .detach();
+    let scan = tree::scan_tree(repo, tree_id).context("cannot scan the superproject")?;
+    let modules = Modules::from_tree(repo, tree_id, reporter)
+        .context("cannot read .gitmodules of the superproject")?;
+    Ok((scan.gitlinks, modules))
+}
+
+/// The gitlinks staged in the index, as `git submodule update` reads them,
+/// with `.gitmodules` from the work tree, or as staged if it has none there.
+fn pinned_in_index(
+    repo: &Repository,
+    reporter: &Reporter,
+) -> Result<(Vec<tree::Gitlink>, Modules)> {
+    let index = repo
+        .index_or_load_from_head_or_empty()
+        .context("cannot read the index of the superproject")?;
+    let gitlinks = tree::staged_gitlinks(&index, reporter)?;
+
+    let in_work_tree = match repo.workdir().map(|dir| dir.join(".gitmodules")) {
+        Some(file) => match std::fs::read(&file) {
+            Ok(bytes) => Some(bytes),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
+            Err(err) => {
+                return Err(err)
+                    .with_context(|| format!("cannot read {}", report::quoted(file.display())));
+            }
+        },
+        None => None,
+    };
+    let bytes = match in_work_tree {
+        Some(bytes) => bytes,
+        None => match index.entry_by_path(".gitmodules".into()) {
+            Some(entry) => repo
+                .find_blob(entry.id)
+                .context("missing .gitmodules blob")?
+                .take_data(),
+            None => return Ok((gitlinks, Modules::default())),
+        },
+    };
+    let modules = Modules::from_bytes(&bytes, reporter)
+        .context("cannot read .gitmodules of the superproject")?;
+    Ok((gitlinks, modules))
+}
+
 fn run_superproject(
     config: &Config,
     work_tree: Option<&Path>,
@@ -153,7 +208,6 @@ fn run_superproject(
     cancel: &CancelToken,
 ) -> Result<()> {
     let repo = discover_superproject(&config.overrides)?;
-    let commit = resolve_commit_id(&repo, &config.rev)?;
     // As in git, submodule paths start at the top of the work tree, wherever
     // in it git-sprig runs.
     let basedir = match work_tree {
@@ -184,15 +238,10 @@ fn run_superproject(
         },
     };
 
-    let tree_id = repo
-        .find_commit(commit)
-        .context("cannot read the resolved commit")?
-        .tree_id()
-        .context("cannot read the superproject tree")?
-        .detach();
-    let scan = tree::scan_tree(&repo, tree_id).context("cannot scan the superproject")?;
-    let mut modules = Modules::from_tree(&repo, tree_id, reporter)
-        .context("cannot read .gitmodules of the superproject")?;
+    let (gitlinks, mut modules) = match &config.rev {
+        Some(rev) => pinned_in_commit(&repo, rev, reporter)?,
+        None => pinned_in_index(&repo, reporter)?,
+    };
     let git_config = repo.config_snapshot();
     modules.configure(git_config.plumbing(), Scope::Repository);
     let mut selection = plan::selection(
@@ -201,7 +250,7 @@ fn run_superproject(
         prefix(&basedir).as_deref(),
     )?;
     let planned = plan::plan(
-        &scan.gitlinks,
+        &gitlinks,
         &modules,
         Some(&base_url),
         &basedir,
@@ -297,7 +346,7 @@ fn run_direct(
     report::status!(
         reporter,
         "Revision {} of {} resolved to {}",
-        report::quoted(&config.rev),
+        report::quoted(config.direct_rev()),
         report::quoted(from),
         report::quoted(source.commit)
     );
@@ -410,7 +459,7 @@ fn open_direct(
         if config.checkouts == Checkouts::Refuse {
             refuse_enclosing_destination(into, &repo)?;
         }
-        let commit = resolve_commit_id(&repo, &config.rev)?;
+        let commit = resolve_commit_id(&repo, config.direct_rev())?;
         let base_url = match remote_url {
             Some(url) => url,
             None => local_url(&repo)?,
@@ -421,11 +470,11 @@ fn open_direct(
             .as_ref()
             .ok_or_else(|| anyhow!("temporary storage was not initialized"))?;
         let (repo, commit, strategy) = fetch
-            .fetch_revision(&root_url, &config.rev, reporter)
+            .fetch_revision(&root_url, config.direct_rev(), reporter)
             .with_context(|| {
                 format!(
                     "cannot fetch revision {} from {}",
-                    report::quoted(&config.rev),
+                    report::quoted(config.direct_rev()),
                     report::quoted(from)
                 )
             })?;
@@ -552,7 +601,7 @@ fn dry_run_direct(
         reporter,
         "Would materialize repository {} at revision {} ({}) into {}",
         report::quoted(from),
-        report::quoted(&config.rev),
+        report::quoted(config.direct_rev()),
         report::quoted(commit),
         report::quoted(into.display())
     );

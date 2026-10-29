@@ -77,7 +77,8 @@ pub(crate) struct Args {
     #[arg(skip)]
     pub(crate) includes: Vec<String>,
 
-    /// Commit, branch or tag of the source repository to use [default: HEAD].
+    /// Commit, branch or tag to use [default: the index, as for `git submodule update`,
+    /// or HEAD of a REPOSITORY].
     #[arg(long, alias = "rev", visible_alias = "branch", value_name = "REV")]
     pub(crate) revision: Option<String>,
 
@@ -253,7 +254,7 @@ impl Args {
             source,
             chdir: self.chdir.into_iter().chain(self.repo).collect(),
             warnings,
-            rev: revision.unwrap_or_else(|| "HEAD".to_owned()),
+            rev: revision,
             includes,
             excludes: self.excludes,
             remote_url: self.remote_url,

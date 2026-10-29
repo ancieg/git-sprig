@@ -43,7 +43,7 @@ use crate::{
     cancel::CancelToken,
     error, fs,
     name::{EntryName, TreePath},
-    report,
+    report::{self, Reporter},
 };
 
 /// Below this many files per thread, another thread costs more than it saves.
@@ -102,6 +102,43 @@ struct Entry {
 /// Validate every entry of `tree_id` and find its gitlinks, without touching the filesystem.
 pub fn scan_tree(repo: &Repository, tree_id: ObjectId) -> Result<Scan> {
     Ok(Scan::of(&list_tree(repo, tree_id)?))
+}
+
+/// The gitlinks staged in `index`, their paths validated name by name as a
+/// tree's are, since an index can be crafted as well. An unmerged gitlink is
+/// skipped, as `git submodule update` skips it.
+pub fn staged_gitlinks(index: &gix::index::State, reporter: &Reporter) -> Result<Vec<Gitlink>> {
+    let mut gitlinks = Vec::new();
+    let mut unmerged: Option<&gix::bstr::BStr> = None;
+    for entry in index.entries() {
+        if !entry.mode.is_submodule() {
+            continue;
+        }
+        let raw = entry.path(index);
+        if entry.stage() != gix::index::entry::Stage::Unconflicted {
+            // Each side of a conflict has an entry of its own.
+            if unmerged != Some(raw) {
+                report::status!(
+                    reporter,
+                    "Skipping unmerged submodule {}",
+                    report::quoted(raw)
+                );
+                unmerged = Some(raw);
+            }
+            continue;
+        }
+        let mut path = TreePath::root();
+        for name in raw.split_str("/") {
+            let name = EntryName::new(name.as_bstr(), false)
+                .with_context(|| format!("in index entry {}", report::quoted(raw)))?;
+            path = path.join(name);
+        }
+        gitlinks.push(Gitlink {
+            path,
+            commit: entry.id,
+        });
+    }
+    Ok(gitlinks)
 }
 
 /// Write `tree_id` into the empty directory `destination` with up to `threads`

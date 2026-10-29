@@ -200,6 +200,64 @@ fn dash_c_changes_directory_as_in_git() {
 }
 
 #[test]
+fn the_index_says_what_is_pinned_unless_a_revision_is_given() {
+    let fx = Fixture::new();
+    let sup = fx.superproject();
+    let root = fx.root.path();
+    let tip = git(&fx.path("remotes/child"), &["rev-parse", "HEAD"]);
+    let clone = fx.path("clone");
+    git(root, &["clone", "-q", sup.to_str().unwrap(), "clone"]);
+
+    // A bump staged but not committed counts, as for `git submodule update`.
+    let gitlink = format!("160000,{tip},vendor/child");
+    git(&clone, &["update-index", "--cacheinfo", &gitlink]);
+    let out = fx.path("staged");
+    plant(&clone, &out, &[]).assert_ok();
+    assert!(out.join("vendor/child/future.txt").exists());
+    let out = fx.path("committed");
+    plant(&clone, &out, &["--revision", "HEAD"]).assert_ok();
+    assert!(!out.join("vendor/child/future.txt").exists());
+
+    // So does .gitmodules as it is in the work tree.
+    let gitmodules = ["config", "--file", ".gitmodules"];
+    git(
+        &clone,
+        &[&gitmodules[..], &["submodule.vendor/child.update", "none"]].concat(),
+    );
+    plant(&clone, &fx.path("edited"), &[])
+        .assert_ok()
+        .assert_says("Skipping submodule 'vendor/child'");
+    plant(&clone, &fx.path("as-committed"), &["--revision", "HEAD"])
+        .assert_ok()
+        .assert_silent_about("Skipping");
+}
+
+#[test]
+fn unmerged_submodules_are_skipped_as_in_git() {
+    let fx = Fixture::new();
+    let sup = fx.superproject();
+    let pin = git(&sup, &["rev-parse", "HEAD:vendor/child"]);
+    git(&sup, &["update-index", "--force-remove", "vendor/child"]);
+    let sides = format!(
+        "160000 {pin} 1\tvendor/child\n160000 {pin} 2\tvendor/child\n160000 {pin} 3\tvendor/child\n"
+    );
+    git_with_input(&sup, &["update-index", "--index-info"], &sides);
+
+    let out = fx.path("out");
+    let run = plant(&sup, &out, &[]);
+    run.assert_ok();
+    assert_eq!(
+        run.stderr
+            .matches("Skipping unmerged submodule 'vendor/child'")
+            .count(),
+        1,
+        "{}",
+        run.stderr
+    );
+    assert!(!out.join("vendor/child/hello.txt").exists());
+}
+
+#[test]
 fn git_dir_and_work_tree_given_to_git_are_honored() {
     let fx = Fixture::new();
     let sup = fx.superproject();

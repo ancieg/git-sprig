@@ -18,7 +18,7 @@
 
 use std::{
     num::NonZeroUsize,
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
 };
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -28,7 +28,7 @@ use crate::{
     cancel::CancelToken,
     config::{Checkouts, Config, Direct, IndexUpdate, Mode, Source, Submodules},
     fetch::{Ephemeral, Fetcher},
-    fs, index,
+    fs, index, repo,
     report::{self, Reporter},
     schedule::{self, Recursion},
     snapshot::Snapshot,
@@ -38,65 +38,6 @@ use crate::{
     },
     tree,
 };
-
-/// Open the repository at or above `at`, with the `-c` settings applied as
-/// `git -c` applies them.
-fn discover(at: &Path, overrides: &[String]) -> Result<Repository> {
-    map_discover_error(
-        at,
-        gix::discover_opts(
-            at,
-            gix::discover::upwards::Options::default(),
-            gix::open::Options::default().cli_overrides(overrides.iter().map(String::as_str)),
-        ),
-    )
-}
-
-/// The superproject, found as git finds it: through `GIT_DIR` and
-/// `GIT_WORK_TREE` if they are set, as `git --git-dir` and `git --work-tree`
-/// set them, and upwards from the current directory otherwise.
-fn discover_superproject(overrides: &[String]) -> Result<Repository> {
-    let options = gix::open::Options::default().cli_overrides(overrides.iter().map(String::as_str));
-    map_discover_error(
-        Path::new("."),
-        ThreadSafeRepository::discover_with_environment_overrides_opts(
-            ".",
-            gix::discover::upwards::Options::default(),
-            gix::sec::trust::Mapping {
-                full: options.clone(),
-                reduced: options,
-            },
-        )
-        .map(Into::into),
-    )
-}
-
-/// git's own wording for the two ordinary cases; gix states them again in its
-/// own words, naming the path a second time.
-fn map_discover_error(
-    at: &Path,
-    result: std::result::Result<Repository, gix::discover::Error>,
-) -> Result<Repository> {
-    use gix::discover::{Error::Discover, upwards::Error as Upwards};
-
-    result.map_err(|err| match err {
-        Discover(
-            Upwards::NoGitRepository { .. }
-            | Upwards::NoGitRepositoryWithinCeiling { .. }
-            | Upwards::NoGitRepositoryWithinFs { .. },
-        ) => anyhow!(
-            "not a git repository (or any of the parent directories): {}",
-            report::quoted(at.display())
-        ),
-        Discover(Upwards::InaccessibleDirectory { path }) => {
-            anyhow!("cannot access {}", report::quoted(path.display()))
-        }
-        other => anyhow::Error::new(other).context(format!(
-            "not a git repository: {}",
-            report::quoted(at.display())
-        )),
-    })
-}
 
 enum RootRepository {
     Local(ThreadSafeRepository),
@@ -127,22 +68,6 @@ pub(crate) fn run(config: &Config, reporter: &Reporter, cancel: &CancelToken) ->
     }
 }
 
-fn resolve_commit_id(repo: &Repository, rev: &str) -> Result<ObjectId> {
-    Ok(repo
-        .rev_parse_single(rev)
-        .with_context(|| format!("cannot resolve revision {}", report::quoted(rev)))?
-        .object()
-        .context("cannot read the resolved object")?
-        .peel_to_commit()
-        .with_context(|| {
-            format!(
-                "revision {} does not point at a commit",
-                report::quoted(rev)
-            )
-        })?
-        .id)
-}
-
 /// The gitlinks of `rev` and the `.gitmodules` committed alongside them.
 fn pinned_in_commit(
     repo: &Repository,
@@ -150,7 +75,7 @@ fn pinned_in_commit(
     reporter: &Reporter,
 ) -> Result<(Vec<tree::Gitlink>, Modules)> {
     let tree_id = repo
-        .find_commit(resolve_commit_id(repo, rev)?)
+        .find_commit(repo::resolve_commit_id(repo, rev)?)
         .context("cannot read the resolved commit")?
         .tree_id()
         .context("cannot read the superproject tree")?
@@ -204,7 +129,7 @@ fn run_superproject(
     reporter: &Reporter,
     cancel: &CancelToken,
 ) -> Result<()> {
-    let repo = discover_superproject(&config.overrides)?;
+    let repo = repo::discover_superproject(&config.overrides)?;
     // As in git, submodule paths start at the top of the work tree, wherever
     // in it git-sprig runs.
     let basedir = match work_tree {
@@ -229,9 +154,9 @@ fn run_superproject(
             })?,
             false,
         ),
-        None => match default_remote_url(&repo) {
+        None => match repo::default_remote_url(&repo) {
             Some(url) => (url, false),
-            None => (local_url(&repo)?, true),
+            None => (repo::local_url(&repo)?, true),
         },
     };
 
@@ -452,14 +377,14 @@ fn open_direct(
         .transpose()
         .context("cannot create temporary storage")?;
     let (repository, commit, base_url) = if local_source {
-        let repo = discover(Path::new(from), &config.overrides)?;
+        let repo = repo::discover(Path::new(from), &config.overrides)?;
         if config.checkouts == Checkouts::Refuse {
             refuse_enclosing_destination(into, &repo)?;
         }
-        let commit = resolve_commit_id(&repo, config.direct_rev())?;
+        let commit = repo::resolve_commit_id(&repo, config.direct_rev())?;
         let base_url = match remote_url {
             Some(url) => url,
-            None => local_url(&repo)?,
+            None => repo::local_url(&repo)?,
         };
         (RootRepository::Local(repo.into_sync()), commit, base_url)
     } else {
@@ -492,30 +417,6 @@ fn open_direct(
         base_url,
         fetcher,
     })
-}
-
-/// The absolute path of a local repository, for relative submodule URLs to be
-/// resolved against: the path `git clone` records for a local source, and the
-/// one git falls back to for a superproject without a remote. It does not
-/// depend on how the path was spelled or on which subdirectory it named. `.`
-/// and `..` are folded first, since resolving takes every component for a
-/// directory.
-fn local_url(repo: &Repository) -> Result<Url> {
-    let path = repo.workdir().unwrap_or_else(|| repo.git_dir());
-    let absolute = std::path::absolute(path)
-        .with_context(|| format!("cannot make {} absolute", report::quoted(path.display())))?;
-    let mut folded = PathBuf::new();
-    for component in absolute.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                folded.pop();
-            }
-            other => folded.push(other),
-        }
-    }
-    gix::url::parse(fs::path_bytes(&folded))
-        .with_context(|| format!("cannot use {} as a URL", report::quoted(folded.display())))
 }
 
 /// The whole destination goes, so a checkout anywhere inside it would too.
@@ -724,16 +625,6 @@ fn report_dry_run(
 
 pub(crate) fn available_cpus() -> usize {
     std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get)
-}
-
-fn default_remote_url(repo: &Repository) -> Option<Url> {
-    repo.find_default_remote(gix::remote::Direction::Fetch)
-        .and_then(Result::ok)
-        .and_then(|remote| {
-            remote
-                .url(gix::remote::Direction::Fetch)
-                .map(ToOwned::to_owned)
-        })
 }
 
 #[cfg(test)]

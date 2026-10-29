@@ -43,6 +43,7 @@ mod fetch;
 mod fs;
 mod index;
 mod name;
+mod repo;
 mod report;
 mod schedule;
 mod snapshot;

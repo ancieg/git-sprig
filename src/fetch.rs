@@ -174,21 +174,22 @@ impl Fetcher {
 
     /// Read advertised refs without receiving a pack, peeling annotated tags.
     fn resolve_revision(&self, url: &gix::Url, rev: &str) -> Result<ObjectId> {
+        let candidates = if rev == "HEAD" || rev.starts_with("refs/") {
+            vec![rev.to_owned()]
+        } else {
+            vec![format!("refs/tags/{rev}"), format!("refs/heads/{rev}")]
+        };
         let scratch = self.create()?;
         let local = scratch.repo().to_thread_local();
         let mut remote = local
             .remote_at(url.clone())
             .with_context(|| format!("cannot set up a remote for {}", report::quoted(url)))?
             .with_fetch_tags(Tags::None);
+        // The refspecs become the ref prefixes the server advertises, so ask
+        // for the candidates alone: fixed globs over branches and tags would
+        // hide refs such as `refs/pull/1/head`.
         remote
-            .replace_refspecs(
-                [
-                    "HEAD",
-                    "refs/heads/*:refs/remotes/origin/*",
-                    "refs/tags/*:refs/tags/*",
-                ],
-                Direction::Fetch,
-            )
+            .replace_refspecs(candidates.iter().map(String::as_str), Direction::Fetch)
             .context("cannot install refspecs")?;
         let prepared = remote
             .connect(Direction::Fetch)
@@ -202,11 +203,6 @@ impl Fetcher {
                 url: url.to_string(),
             })?;
 
-        let candidates = if rev == "HEAD" || rev.starts_with("refs/") {
-            vec![rev.to_owned()]
-        } else {
-            vec![format!("refs/tags/{rev}"), format!("refs/heads/{rev}")]
-        };
         let resolved = candidates.iter().find_map(|candidate| {
             prepared.ref_map().remote_refs.iter().find_map(|remote| {
                 let (name, target, peeled) = remote.unpack();

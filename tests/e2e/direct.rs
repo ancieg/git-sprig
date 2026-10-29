@@ -87,6 +87,7 @@ fn resolves_remote_ids_branches_tags_and_head() {
     git(&repo, &["branch", "old-branch"]);
     git(&repo, &["tag", "lightweight"]);
     git(&repo, &["tag", "-a", "annotated", "-m", "release"]);
+    git(&repo, &["update-ref", "refs/pull/1/head", &old]);
     write(&repo, "version.txt", "new\n");
     let tip = commit_all(&repo, "new tree");
     let url = file_url(&repo);
@@ -95,6 +96,7 @@ fn resolves_remote_ids_branches_tags_and_head() {
         (old.as_str(), old.as_str(), "old\n"),
         ("old-branch", old.as_str(), "old\n"),
         ("refs/heads/old-branch", old.as_str(), "old\n"),
+        ("refs/pull/1/head", old.as_str(), "old\n"),
         ("lightweight", old.as_str(), "old\n"),
         ("annotated", old.as_str(), "old\n"),
         ("HEAD", tip.as_str(), "new\n"),

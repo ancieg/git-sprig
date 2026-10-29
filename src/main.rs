@@ -41,13 +41,13 @@ mod config;
 mod error;
 mod fetch;
 mod fs;
-mod index;
 mod name;
 mod protect;
 mod repo;
 mod report;
 mod schedule;
 mod snapshot;
+mod stage;
 mod submodule;
 mod tree;
 

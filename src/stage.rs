@@ -69,7 +69,11 @@ pub fn work_tree(repo: &Repository, root: &Path) -> Result<PathBuf> {
 
 /// Replace each submodule in the index with the files now at its path, and
 /// remove it from `.gitmodules`.
-pub fn stage(work_tree: &Path, submodules: &[Submodule], reporter: &Reporter) -> Result<()> {
+pub fn replace_gitlinks(
+    work_tree: &Path,
+    submodules: &[Submodule],
+    reporter: &Reporter,
+) -> Result<()> {
     let git = Git::in_tree(work_tree);
     for submodule in submodules {
         let mut pathspec = OsString::from(":(literal)");

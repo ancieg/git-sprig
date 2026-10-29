@@ -28,9 +28,9 @@ use crate::{
     cancel::CancelToken,
     config::{Checkouts, Config, IndexUpdate, Mode, Superproject},
     fetch::Fetcher,
-    index, protect, repo,
+    protect, repo,
     report::{self, Reporter},
-    schedule,
+    schedule, stage,
     submodule::{
         gitmodules::{Modules, Scope},
         plan::{self, Planned},
@@ -50,7 +50,7 @@ pub(super) fn run(
 
     // Both checked before anything is fetched.
     let staged_tree = (config.index == IndexUpdate::Stage)
-        .then(|| index::work_tree(&repo, &work_tree))
+        .then(|| stage::work_tree(&repo, &work_tree))
         .transpose()?;
     if config.checkouts == Checkouts::Refuse {
         protect::refuse_checkouts(&planned)?;
@@ -64,10 +64,10 @@ pub(super) fn run(
     std::fs::create_dir_all(&work_tree)
         .with_context(|| format!("cannot create {}", report::quoted(work_tree.display())))?;
 
-    let submodules: Vec<index::Submodule> = if staged_tree.is_some() {
+    let submodules: Vec<stage::Submodule> = if staged_tree.is_some() {
         planned
             .iter()
-            .map(|planned| index::Submodule {
+            .map(|planned| stage::Submodule {
                 name: planned.name.clone(),
                 path: planned.path.clone(),
             })
@@ -93,7 +93,7 @@ pub(super) fn run(
     )?;
 
     if let Some(canonical) = &staged_tree {
-        index::stage(canonical, &submodules, reporter)?;
+        stage::replace_gitlinks(canonical, &submodules, reporter)?;
     }
     Ok(())
 }

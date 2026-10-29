@@ -267,9 +267,12 @@ fn quiet_prints_nothing_but_errors() {
     let sup = fx.superproject();
     let out = fx.path("out");
 
-    let run = plant(&sup, &out, &["-q"]);
-    run.assert_ok();
-    assert_eq!(run.stderr, "");
+    // As in git, the last of -q and -v wins.
+    for flags in [&["-q"][..], &["-v", "-q"], &["-qq"]] {
+        let run = plant(&sup, &out, flags);
+        run.assert_ok();
+        assert_eq!(run.stderr, "", "{flags:?}");
+    }
 
     std::fs::remove_file(sup.join(".gitmodules")).unwrap();
     commit_all(&sup, "drop .gitmodules");
@@ -290,7 +293,7 @@ fn run_in_nowhere(fx: &Fixture) -> Run {
 #[test]
 fn verbose_says_how_each_submodule_was_fetched() {
     let fx = Fixture::new();
-    let run = plant(&fx.superproject(), &fx.path("out"), &["-v"]);
+    let run = plant(&fx.superproject(), &fx.path("out"), &["-q", "-v", "-v"]);
     run.assert_ok();
     assert!(
         run.stderr

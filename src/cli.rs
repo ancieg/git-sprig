@@ -131,13 +131,15 @@ pub(crate) struct Args {
     #[arg(short = 'n', long)]
     pub(crate) dry_run: bool,
 
+    // Counted and overriding each other, so that, as in git, both may be
+    // repeated and whichever comes last wins.
     /// Only print errors.
-    #[arg(short, long, conflicts_with = "verbose")]
-    pub(crate) quiet: bool,
+    #[arg(short, long, action = clap::ArgAction::Count, overrides_with = "verbose")]
+    pub(crate) quiet: u8,
 
     /// Also print how each submodule was fetched and written.
-    #[arg(short, long)]
-    pub(crate) verbose: bool,
+    #[arg(short, long, action = clap::ArgAction::Count, overrides_with = "quiet")]
+    pub(crate) verbose: u8,
 
     /// Print the manual page, to install as git-sprig(1), and exit.
     #[arg(long, exclusive = true, help_heading = "Installation")]
@@ -233,9 +235,9 @@ impl Args {
             } else {
                 Mode::Plant
             },
-            verbosity: if self.quiet {
+            verbosity: if self.quiet > 0 {
                 Verbosity::Quiet
-            } else if self.verbose {
+            } else if self.verbose > 0 {
                 Verbosity::Verbose
             } else {
                 Verbosity::Normal

@@ -172,7 +172,7 @@ $ git-sprig -c http.proxy=http://proxy.example.com:3128
 | `--remote-url <URL>` | Where relative submodule URLs are resolved from. |
 | `-c, --config <KEY=VALUE>` | A git setting for the downloads, like `git -c`. |
 | `--raw` | Write files exactly as stored, without converting line endings. |
-| `--force` | Replace destinations even if they are git checkouts. |
+| `--force` | Replace destinations even if they are or contain git checkouts. |
 | `--stage` | Replace the submodules in the project's index with their files, ready to commit. |
 | `--tempdir <DIR>` | Where to keep downloads while working. |
 | `--dry-run` | Show what would be fetched and stop without changing the destination. |
@@ -188,11 +188,11 @@ $ git-sprig -c http.proxy=http://proxy.example.com:3128
   Without a positional repository, only submodule folders are replaced; the
   project's own files are never touched, except the index and `.gitmodules`
   when you pass `--stage`.
-- **Existing checkouts are protected.** If a root destination or submodule
-  folder is a real git checkout with its own `.git`, or a root destination
-  holds the local source repository, git-sprig stops before changing
-  anything, so you can't lose work by accident. Pass `--force` to replace it
-  anyway.
+- **Existing checkouts are protected.** If a submodule folder is a real git
+  checkout with its own `.git`, or a root destination is one, has one anywhere
+  inside it or holds the local source repository, git-sprig stops before
+  changing anything, so you can't lose work by accident. Pass `--force` to
+  replace it anyway.
 - **Nothing is left half-done.** A destination is swapped in only after its
   complete tree has been prepared. In direct mode this includes all requested
   submodules. If a download fails or you press Ctrl-C, the old contents stay as

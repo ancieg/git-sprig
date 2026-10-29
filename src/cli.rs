@@ -85,7 +85,7 @@ pub(crate) struct Args {
     #[arg(long = "exclude", value_name = "PATHSPEC", value_parser = valid_pathspec)]
     pub(crate) excludes: Vec<String>,
 
-    /// Replace destinations that have a .git of their own, discarding work in them.
+    /// Replace destinations that are or contain git checkouts, discarding work in them.
     #[arg(long)]
     pub(crate) force: bool,
 

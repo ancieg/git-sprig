@@ -17,10 +17,11 @@
 //! Filesystem operations that follow no symlinks. All Unix specifics live here.
 
 use std::{
+    collections::VecDeque,
     ffi::OsStr,
     fs,
     os::unix::{ffi::OsStrExt, fs::OpenOptionsExt},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 use anyhow::{Context, Result, bail};
@@ -83,6 +84,40 @@ pub fn ensure_real_dirs(base: &Path, relative: &TreePath) -> Result<()> {
 pub fn is_checkout(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok_and(|meta| meta.is_dir())
         && fs::symlink_metadata(path.join(".git")).is_ok()
+}
+
+/// The shallowest directory at or below `path` with a `.git` of its own, if
+/// any. A symlink is not followed, since replacing it leaves its target alone.
+pub fn find_checkout(path: &Path) -> Result<Option<PathBuf>> {
+    if !fs::symlink_metadata(path).is_ok_and(|meta| meta.is_dir()) {
+        return Ok(None);
+    }
+    // Breadth first, so a checkout near the top is found without walking
+    // everything else first.
+    let mut pending = VecDeque::from([path.to_owned()]);
+    while let Some(dir) = pending.pop_front() {
+        let entries = match fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(err) => {
+                return Err(err)
+                    .with_context(|| format!("cannot list {}", report::quoted(dir.display())));
+            }
+        };
+        let mut subdirs = Vec::new();
+        for entry in entries {
+            let entry =
+                entry.with_context(|| format!("cannot list {}", report::quoted(dir.display())))?;
+            if entry.file_name() == ".git" {
+                return Ok(Some(dir));
+            }
+            if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                subdirs.push(entry.path());
+            }
+        }
+        pending.extend(subdirs);
+    }
+    Ok(None)
 }
 
 /// Create `path` with git's checkout modes (the umask applies), following no symlink.

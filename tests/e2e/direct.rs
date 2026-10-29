@@ -250,32 +250,70 @@ fn protects_a_destination_checkout_unless_forced() {
 #[test]
 fn protects_a_destination_holding_the_local_source_unless_forced() {
     let root = tempfile::tempdir().unwrap();
+    let work = root.path().join("work");
+    init_repo(&work);
+    write(&work, "source.txt", "source\n");
+    commit_all(&work, "source");
+    // A bare repository has no .git entry that the checkout search could find.
     let out = root.path().join("out");
-    let repo = out.join("src");
-    init_repo(&repo);
-    write(&repo, "source.txt", "source\n");
-    commit_all(&repo, "source");
-    write(&repo, "wip.txt", "uncommitted\n");
+    let bare = out.join("src.git");
+    git(
+        &work,
+        &["clone", "-q", "--bare", ".", bare.to_str().unwrap()],
+    );
     // Only the worktree is outside; its repository is inside the destination.
     let worktree = root.path().join("worktree");
     git(
-        &repo,
+        &bare,
         &["worktree", "add", "-q", worktree.to_str().unwrap()],
     );
+    write(&worktree, "wip.txt", "uncommitted\n");
 
-    for source in [&repo, &worktree] {
+    for source in [&bare, &worktree] {
         let run = direct(source.to_str().unwrap(), &out, "HEAD", &[]);
         run.assert_failed();
         run.assert_says("contains the source repository");
         run.assert_says("--force");
-        assert_eq!(read(&repo.join("wip.txt")), "uncommitted\n");
-        assert!(repo.join(".git").is_dir());
+        assert!(bare.join("HEAD").is_file());
+        assert_eq!(read(&worktree.join("wip.txt")), "uncommitted\n");
         assert_eq!(leftovers(root.path()), Vec::<String>::new());
     }
 
+    direct(bare.to_str().unwrap(), &out, "HEAD", &["--force"]).assert_ok();
+    assert_eq!(read(&out.join("source.txt")), "source\n");
+    assert!(!out.join("src.git").exists());
+}
+
+#[test]
+fn protects_checkouts_inside_the_destination_unless_forced() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = root.path().join("repo");
+    init_repo(&repo);
+    write(&repo, "source.txt", "source\n");
+    commit_all(&repo, "source");
+    let out = root.path().join("out");
+    let nested = out.join("projects/other");
+    init_repo(&nested);
+    write(&nested, "wip.txt", "uncommitted\n");
+
+    let run = direct(repo.to_str().unwrap(), &out, "HEAD", &[]);
+    run.assert_failed();
+    run.assert_says("holds the git checkout");
+    run.assert_says("projects/other");
+    run.assert_says("--force");
+    assert_eq!(read(&nested.join("wip.txt")), "uncommitted\n");
+    assert_eq!(leftovers(root.path()), Vec::<String>::new());
+
+    // Replacing a symlink leaves the checkouts below its target alone.
+    let link = root.path().join("link");
+    std::os::unix::fs::symlink(&out, &link).unwrap();
+    direct(repo.to_str().unwrap(), &link, "HEAD", &[]).assert_ok();
+    assert_eq!(read(&link.join("source.txt")), "source\n");
+    assert_eq!(read(&nested.join("wip.txt")), "uncommitted\n");
+
     direct(repo.to_str().unwrap(), &out, "HEAD", &["--force"]).assert_ok();
     assert_eq!(read(&out.join("source.txt")), "source\n");
-    assert!(!out.join("src").exists());
+    assert!(!out.join("projects").exists());
 }
 
 #[test]

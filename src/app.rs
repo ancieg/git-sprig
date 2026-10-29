@@ -216,11 +216,24 @@ fn run_direct(
     reporter: &Reporter,
     cancel: &CancelToken,
 ) -> Result<()> {
-    if config.checkouts == Checkouts::Refuse && fs::is_checkout(&config.basedir) {
+    // The whole destination goes, so a checkout anywhere inside it would too.
+    if config.checkouts == Checkouts::Refuse
+        && let Some(checkout) = fs::find_checkout(&config.basedir)?
+    {
+        if checkout == config.basedir {
+            bail!(
+                "refusing to replace {}, which is a git checkout with a .git of its own\n\
+                 Replacing it discards any uncommitted or unpushed work; pass --force to do it \
+                 anyway.",
+                report::quoted(config.basedir.display())
+            );
+        }
         bail!(
-            "refusing to replace {}, which is a git checkout with a .git of its own\n\
-             Replacing it discards any uncommitted or unpushed work; pass --force to do it anyway.",
-            report::quoted(config.basedir.display())
+            "refusing to replace {}, which holds the git checkout {}\n\
+             Replacing it discards any uncommitted or unpushed work there; pass --force to do \
+             it anyway.",
+            report::quoted(config.basedir.display()),
+            report::quoted(checkout.display())
         );
     }
     let source = open_direct(config, from, reporter, cancel)?;

@@ -16,9 +16,12 @@
 
 //! Walking a git tree and writing it out as plain files.
 
+mod convert;
+mod objects;
+
 use std::{
     collections::HashSet,
-    io::{self, Write},
+    io::Write,
     path::Path,
     sync::{
         Mutex, PoisonError,
@@ -27,18 +30,13 @@ use std::{
     thread,
 };
 
-use anyhow::{Context, Result, anyhow, bail};
-use gix::{
-    AttributeStack, ObjectId, Repository, ThreadSafeRepository,
-    attrs::StateRef,
-    bstr::ByteSlice,
-    filter::plumbing::eol::{self, AttributesDigest, Mode},
-    objs::tree::EntryKind,
-    odb::pack,
-    worktree::stack::state::attributes::Source,
-    zlib,
-};
+use anyhow::{Context, Result, bail};
+use gix::{ObjectId, Repository, ThreadSafeRepository, bstr::ByteSlice, objs::tree::EntryKind};
 
+use self::{
+    convert::{Conversions, convert},
+    objects::Objects,
+};
 use crate::{
     cancel::CancelToken,
     error, fs,
@@ -411,37 +409,6 @@ impl Writer<'_> {
     }
 }
 
-fn convert(
-    pipeline: &mut gix::filter::Pipeline<'_>,
-    data: &[u8],
-    relative: &TreePath,
-    out: &mut std::fs::File,
-) -> Result<()> {
-    let rela_path = fs::path_bytes(relative.as_path());
-    let mut outcome = pipeline
-        .convert_to_worktree(
-            data,
-            rela_path,
-            gix::filter::plumbing::pipeline::convert::to_worktree::Options {
-                can_delay: gix::filter::plumbing::driver::apply::Delay::Forbid,
-                ..Default::default()
-            },
-        )
-        .with_context(|| format!("cannot filter {}", report::quoted(relative.display())))?;
-    if let Some(bytes) = outcome.as_bytes() {
-        out.write_all(bytes)?;
-    } else {
-        let reader = outcome.as_read().ok_or_else(|| {
-            anyhow!(
-                "filter for {} produced no output",
-                report::quoted(relative.display())
-            )
-        })?;
-        io::copy(reader, out)?;
-    }
-    Ok(())
-}
-
 fn find_blob<'repo>(
     repo: &'repo Repository,
     id: ObjectId,
@@ -455,283 +422,6 @@ fn find_blob<'repo>(
     })
 }
 
-const CONVERSIONS: [&str; 6] = [
-    "crlf",
-    "text",
-    "eol",
-    "ident",
-    "filter",
-    "working-tree-encoding",
-];
-
-struct Conversions<'repo> {
-    attributes: AttributeStack<'repo>,
-    matches: gix::attrs::search::Outcome,
-    eol: eol::Configuration,
-}
-
-impl<'repo> Conversions<'repo> {
-    fn new(repo: &'repo Repository, tree_id: ObjectId) -> Result<Self> {
-        let index = repo
-            .index_from_tree(&tree_id)
-            .context("cannot index the tree for .gitattributes")?;
-        let attributes = repo
-            .attributes_only(&index, Source::IdMapping)
-            .context("cannot read .gitattributes")?;
-        let matches = attributes.selected_attribute_matches(CONVERSIONS);
-        let eol = gix::filter::Pipeline::options(repo)
-            .context("cannot read the checkout configuration")?
-            .eol_config;
-        Ok(Self {
-            attributes,
-            matches,
-            eol,
-        })
-    }
-
-    /// Whether checkout writes `relative` byte for byte, decided as gix-filter decides it.
-    fn is_verbatim(&mut self, relative: &Path) -> Result<bool> {
-        self.attributes
-            .at_entry(relative, None)?
-            .matching_attributes(&mut self.matches);
-        let states: Vec<StateRef<'_>> = self
-            .matches
-            .iter_selected()
-            .map(|found| found.assignment.state)
-            .collect();
-        let [crlf, text, eol, ident, filter, encoding] = states[..] else {
-            return Ok(false);
-        };
-        if ident.is_set()
-            || matches!(filter, StateRef::Value(_))
-            || !matches!(encoding, StateRef::Unspecified)
-        {
-            return Ok(false);
-        }
-        Ok(line_endings(crlf, text, eol, self.eol).to_eol(self.eol) != Some(Mode::CrLf))
-    }
-}
-
-/// gix-filter's line-ending decision for a path's attributes, which it keeps private.
-fn line_endings(
-    crlf: StateRef<'_>,
-    text: StateRef<'_>,
-    eol: StateRef<'_>,
-    config: eol::Configuration,
-) -> AttributesDigest {
-    let digest_of = |state: StateRef<'_>| match state {
-        StateRef::Set => Some(AttributesDigest::Text),
-        StateRef::Unset => Some(AttributesDigest::Binary),
-        StateRef::Value(value) if value.as_bstr() == "input" => Some(AttributesDigest::TextInput),
-        StateRef::Value(value) if value.as_bstr() == "auto" => Some(AttributesDigest::TextAuto),
-        StateRef::Value(_) | StateRef::Unspecified => None,
-    };
-    let mut digest = digest_of(text).or_else(|| digest_of(crlf));
-
-    if digest != Some(AttributesDigest::Binary) {
-        let mode = match eol {
-            StateRef::Value(value) if value.as_bstr() == "lf" => Some(Mode::Lf),
-            StateRef::Value(value) if value.as_bstr() == "crlf" => Some(Mode::CrLf),
-            _ => None,
-        };
-        digest = match (digest, mode) {
-            (Some(AttributesDigest::TextAuto), Some(Mode::Lf)) => {
-                Some(AttributesDigest::TextAutoInput)
-            }
-            (Some(AttributesDigest::TextAuto), Some(Mode::CrLf)) => {
-                Some(AttributesDigest::TextAutoCrlf)
-            }
-            (_, Some(mode)) => Some(mode.into()),
-            (digest, None) => digest,
-        };
-    }
-
-    match digest {
-        None => config.auto_crlf.into(),
-        Some(AttributesDigest::Text) => config.to_eol().into(),
-        Some(digest) => digest,
-    }
-}
-
-/// Packed and loose objects that can be inflated without buffering a whole blob.
-struct Objects {
-    packs: Vec<pack::Bundle>,
-    loose: std::path::PathBuf,
-}
-
-impl Objects {
-    fn open(repo: &Repository) -> Result<Self> {
-        // A linked worktree keeps its objects in the common directory.
-        let loose = repo.common_dir().join("objects");
-        let dir = loose.join("pack");
-        let entries = match std::fs::read_dir(&dir) {
-            Ok(entries) => entries,
-            Err(err) if err.kind() == io::ErrorKind::NotFound => {
-                return Ok(Self {
-                    packs: Vec::new(),
-                    loose,
-                });
-            }
-            Err(err) => {
-                return Err(err)
-                    .with_context(|| format!("cannot list {}", report::quoted(dir.display())));
-            }
-        };
-        let mut packs = Vec::new();
-        for entry in entries {
-            let path = entry?.path();
-            if path.extension().is_some_and(|extension| extension == "idx") {
-                let bundle = pack::Bundle::at(&path, repo.object_hash())
-                    .with_context(|| format!("cannot open {}", report::quoted(path.display())))?;
-                packs.push(bundle);
-            }
-        }
-        Ok(Self { packs, loose })
-    }
-
-    /// Inflate blob `id` straight into `out`. Returns `false` if it is only
-    /// available as a packed delta or in another object database.
-    fn stream(&self, id: ObjectId, out: &mut impl Write) -> Result<bool> {
-        let Some((pack, entry)) = self.packs.iter().find_map(|bundle| {
-            let index = bundle.index.lookup(id)?;
-            let offset = bundle.index.pack_offset_at_index(index);
-            Some((&bundle.pack, bundle.pack.entry(offset)))
-        }) else {
-            return self.stream_loose(id, out);
-        };
-        let entry = entry?;
-        if !matches!(entry.header, pack::data::entry::Header::Blob) {
-            return Ok(false);
-        }
-
-        let end = u64::try_from(pack.pack_end())?;
-        let data = pack
-            .entry_slice(entry.data_offset..end)
-            .with_context(|| format!("pack entry of {id} is out of bounds"))?;
-        let mut inflate = zlib::Decompress::new();
-        let mut buf = vec![0; 1 << 16];
-        loop {
-            let consumed = usize::try_from(inflate.total_in())?;
-            let before = inflate.total_out();
-            let status =
-                inflate.decompress(&data[consumed..], &mut buf, zlib::FlushDecompress::None)?;
-            let produced = usize::try_from(inflate.total_out() - before)?;
-            out.write_all(&buf[..produced])?;
-            if status == zlib::Status::StreamEnd {
-                break;
-            }
-            if produced == 0 && usize::try_from(inflate.total_in())? == consumed {
-                bail!("pack entry of {id} is truncated");
-            }
-        }
-
-        if inflate.total_out() != entry.decompressed_size {
-            bail!(
-                "pack entry of {id} inflated to {} bytes instead of {}",
-                inflate.total_out(),
-                entry.decompressed_size
-            );
-        }
-        Ok(true)
-    }
-
-    fn stream_loose(&self, id: ObjectId, out: &mut impl Write) -> Result<bool> {
-        let hex = id.to_string();
-        let path = self.loose.join(&hex[..2]).join(&hex[2..]);
-        let mut file = match std::fs::File::open(&path) {
-            Ok(file) => file,
-            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(false),
-            Err(err) => {
-                return Err(err)
-                    .with_context(|| format!("cannot open {}", report::quoted(path.display())));
-            }
-        };
-
-        let mut inflate = zlib::Decompress::new();
-        let mut input = [0; 1 << 14];
-        let mut input_len = 0;
-        let mut input_pos = 0;
-        let mut input_done = false;
-        let mut header = [0; 64];
-        let mut header_len = 0;
-        let mut output = vec![0; 1 << 16];
-        let mut body = None;
-        let mut body_size = 0;
-        let mut body_written = 0_u64;
-
-        loop {
-            if input_pos == input_len && !input_done {
-                input_len = std::io::Read::read(&mut file, &mut input)
-                    .with_context(|| format!("cannot read {}", report::quoted(path.display())))?;
-                input_pos = 0;
-                input_done = input_len == 0;
-            }
-            let consumed = usize::try_from(inflate.total_in())?;
-            let before = inflate.total_out();
-            let status = if body.is_some() {
-                inflate.decompress(
-                    &input[input_pos..input_len],
-                    &mut output,
-                    zlib::FlushDecompress::None,
-                )
-            } else {
-                inflate.decompress(
-                    &input[input_pos..input_len],
-                    &mut header[header_len..],
-                    zlib::FlushDecompress::None,
-                )
-            }
-            .with_context(|| format!("cannot inflate loose object {id}"))?;
-            input_pos += usize::try_from(inflate.total_in())? - consumed;
-            let produced = usize::try_from(inflate.total_out() - before)?;
-
-            if body.is_some() {
-                out.write_all(&output[..produced])?;
-                body_written = body_written
-                    .checked_add(u64::try_from(produced)?)
-                    .ok_or_else(|| anyhow!("loose object {id} is too large"))?;
-                if body_written > body_size {
-                    bail!("loose object {id} exceeds its declared size of {body_size}");
-                }
-            } else {
-                header_len += produced;
-                if header[..header_len].contains(&0) {
-                    let (kind, size, header_size) =
-                        gix::objs::decode::loose_header(&header[..header_len])
-                            .with_context(|| format!("invalid loose object {id}"))?;
-                    if kind != gix::objs::Kind::Blob {
-                        bail!("loose object {id} is {kind:?}, not a blob");
-                    }
-                    body_size = size;
-                    body = Some(header_size);
-                    out.write_all(&header[header_size..header_len])?;
-                    body_written = u64::try_from(header_len - header_size)?;
-                    if body_written > body_size {
-                        bail!("loose object {id} exceeds its declared size of {body_size}");
-                    }
-                } else if header_len == header.len() {
-                    bail!("loose object {id} has an overlong header");
-                }
-            }
-
-            if status == zlib::Status::StreamEnd {
-                if body.is_none() {
-                    bail!("loose object {id} has no header");
-                }
-                if body_written != body_size {
-                    bail!(
-                        "loose object {id} inflated to {body_written} bytes instead of {body_size}"
-                    );
-                }
-                return Ok(true);
-            }
-            if produced == 0 && usize::try_from(inflate.total_in())? == consumed {
-                bail!("loose object {id} is truncated");
-            }
-        }
-    }
-}
-
 fn display(path: &TreePath) -> String {
     if path.is_root() {
         "<root>".into()
@@ -743,7 +433,6 @@ fn display(path: &TreePath) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gix::filter::plumbing::eol::AutoCrlf;
 
     /// Build a tree nested `depth` levels deep with one blob at the bottom.
     fn deep_tree(repo: &Repository, depth: usize) -> ObjectId {
@@ -765,59 +454,6 @@ mod tests {
     }
 
     #[test]
-    fn loose_blobs_stream_across_buffer_boundaries() {
-        for size in [
-            0,
-            1,
-            55,
-            56,
-            57,
-            58,
-            59,
-            60,
-            63,
-            64,
-            65,
-            1 << 14,
-            (1 << 16) + 17,
-            200_000,
-        ] {
-            let dir = tempfile::tempdir().unwrap();
-            let repo = gix::init_bare(dir.path()).unwrap();
-            let data: Vec<u8> = (0..size)
-                .map(|index| u8::try_from(index % 251).unwrap())
-                .collect();
-            let id = repo.write_blob(&data).unwrap().detach();
-            let objects = Objects::open(&repo).unwrap();
-            let mut out = Vec::new();
-            assert!(objects.stream(id, &mut out).unwrap(), "size {size}");
-            assert_eq!(out, data, "size {size}");
-        }
-    }
-
-    #[test]
-    fn truncated_loose_objects_are_rejected() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let dir = tempfile::tempdir().unwrap();
-        let repo = gix::init_bare(dir.path()).unwrap();
-        let id = repo.write_blob(vec![42; 100_000]).unwrap().detach();
-        let hex = id.to_string();
-        let path = dir.path().join("objects").join(&hex[..2]).join(&hex[2..]);
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
-        std::fs::OpenOptions::new()
-            .write(true)
-            .open(path)
-            .unwrap()
-            .set_len(2)
-            .unwrap();
-
-        let objects = Objects::open(&repo).unwrap();
-        let mut out = Vec::new();
-        assert!(objects.stream(id, &mut out).is_err());
-    }
-
-    #[test]
     fn deep_trees_do_not_overflow_the_stack() {
         // A tree this deep overflowed the old recursive walk; the iterative one
         // handles it, and it stays under core.maxTreeDepth so the walk succeeds.
@@ -836,60 +472,5 @@ mod tests {
         let tree_id = deep_tree(&repo, DEFAULT_MAX_TREE_DEPTH + 10);
         let err = scan_tree(&repo, tree_id).unwrap_err().to_string();
         assert!(err.contains("levels deep"), "{err}");
-    }
-
-    fn converts(attributes: [StateRef<'_>; 3], auto_crlf: AutoCrlf, eol: Option<Mode>) -> bool {
-        let config = eol::Configuration { auto_crlf, eol };
-        let [crlf, text, eol_attr] = attributes;
-        line_endings(crlf, text, eol_attr, config).to_eol(config) == Some(Mode::CrLf)
-    }
-
-    #[test]
-    fn line_endings_follow_gix_filter() {
-        use StateRef::{Set, Unset, Unspecified, Value};
-        let value = |v: &'static str| Value(v.into());
-        let none = [Unspecified, Unspecified, Unspecified];
-
-        assert!(!converts(none, AutoCrlf::Disabled, None));
-        assert!(!converts(none, AutoCrlf::Input, None));
-        assert!(converts(none, AutoCrlf::Enabled, None));
-        assert!(converts(
-            [Unspecified, Set, Unspecified],
-            AutoCrlf::Disabled,
-            Some(Mode::CrLf)
-        ));
-        assert!(!converts(
-            [Unspecified, Set, Unspecified],
-            AutoCrlf::Disabled,
-            None
-        ));
-
-        assert!(!converts(
-            [Unspecified, value("auto"), value("lf")],
-            AutoCrlf::Enabled,
-            None
-        ));
-        assert!(converts(
-            [Unspecified, value("auto"), value("crlf")],
-            AutoCrlf::Disabled,
-            None
-        ));
-        assert!(converts(
-            [Unspecified, Unspecified, value("crlf")],
-            AutoCrlf::Disabled,
-            None
-        ));
-        assert!(!converts(
-            [Unspecified, Unset, value("crlf")],
-            AutoCrlf::Enabled,
-            None
-        ));
-        // `text` is checked before `crlf`, as in git.
-        assert!(converts([Unset, Set, Unspecified], AutoCrlf::Enabled, None));
-        assert!(!converts(
-            [value("input"), Unspecified, Unspecified],
-            AutoCrlf::Enabled,
-            None
-        ));
     }
 }

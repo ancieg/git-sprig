@@ -156,15 +156,7 @@ fn plan_submodules(
 /// itself: without a remote, git takes the superproject for its own upstream.
 fn base_url(config: &Config, repo: &Repository) -> Result<(Url, bool)> {
     Ok(match &config.remote_url {
-        Some(url) => (
-            gix::url::parse(gix::bstr::BStr::new(url.as_str())).with_context(|| {
-                format!(
-                    "--remote-url {} is not a valid git URL",
-                    report::quoted(url)
-                )
-            })?,
-            false,
-        ),
+        Some(url) => (url.clone(), false),
         None => match repo::default_remote_url(repo) {
             Some(url) => (url, false),
             None => (repo::local_url(repo)?, true),

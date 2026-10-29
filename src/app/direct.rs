@@ -72,22 +72,9 @@ pub(super) fn run(
     if config.checkouts == Checkouts::Refuse {
         protect::refuse_holding_checkouts(&direct.into)?;
     }
-    let remote_url = config
-        .remote_url
-        .as_ref()
-        .map(|url| {
-            gix::url::parse(gix::bstr::BStr::new(url.as_str())).with_context(|| {
-                format!(
-                    "--remote-url {} is not a valid git URL",
-                    report::quoted(url)
-                )
-            })
-        })
-        .transpose()?;
-
     if Path::new(&direct.from).exists() {
         // Read where it is; only its submodules need temporary storage.
-        let root = open_local(config, direct, remote_url, reporter)?;
+        let root = open_local(config, direct, reporter)?;
         match config.mode {
             Mode::DryRun => dry_run(config, direct, &root, reporter),
             Mode::Plant => {
@@ -99,7 +86,7 @@ pub(super) fn run(
         // Fetched even for a dry run, to see what it holds. The fetcher is
         // dropped last, as the fetched root lives in its storage.
         let fetcher = new_fetcher(config, cancel)?;
-        let root = open_remote(config, direct, remote_url, &fetcher, reporter)?;
+        let root = open_remote(config, direct, &fetcher, reporter)?;
         match config.mode {
             Mode::DryRun => dry_run(config, direct, &root, reporter),
             Mode::Plant => plant(config, direct, &root, &fetcher, reporter, cancel),
@@ -112,19 +99,14 @@ fn new_fetcher(config: &Config, cancel: &CancelToken) -> Result<Fetcher> {
         .context("cannot create temporary storage")
 }
 
-fn open_local(
-    config: &Config,
-    direct: &Direct,
-    remote_url: Option<Url>,
-    reporter: &Reporter,
-) -> Result<Root> {
+fn open_local(config: &Config, direct: &Direct, reporter: &Reporter) -> Result<Root> {
     let repo = repo::discover(Path::new(&direct.from), &config.overrides)?;
     if config.checkouts == Checkouts::Refuse {
         protect::refuse_enclosing_destination(&direct.into, &repo)?;
     }
     let commit = repo::resolve_commit_id(&repo, config.direct_rev())?;
-    let base_url = match remote_url {
-        Some(url) => url,
+    let base_url = match &config.remote_url {
+        Some(url) => url.clone(),
         None => repo::local_url(&repo)?,
     };
     resolved(config, direct, commit, reporter);
@@ -138,7 +120,6 @@ fn open_local(
 fn open_remote(
     config: &Config,
     direct: &Direct,
-    remote_url: Option<Url>,
     fetcher: &Fetcher,
     reporter: &Reporter,
 ) -> Result<Root> {
@@ -167,7 +148,7 @@ fn open_remote(
     Ok(Root {
         repository: RootRepository::Remote(repo),
         commit,
-        base_url: remote_url.unwrap_or(url),
+        base_url: config.remote_url.clone().unwrap_or(url),
     })
 }
 

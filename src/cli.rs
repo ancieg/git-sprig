@@ -231,7 +231,7 @@ impl Args {
             rev: self.revision,
             includes,
             excludes: self.excludes,
-            remote_url: self.remote_url,
+            remote_url: self.remote_url.as_deref().map(remote_url).transpose()?,
             overrides,
             tempdir: self.tempdir,
             jobs: self.jobs,
@@ -281,6 +281,16 @@ fn destination(path: &std::path::Path) -> Result<PathBuf, String> {
         return Err("the destination is replaced as a whole and must end in a name".to_owned());
     }
     Ok(path)
+}
+
+/// `--remote-url`, read once for both modes.
+fn remote_url(url: &str) -> anyhow::Result<gix::Url> {
+    gix::url::parse(gix::bstr::BStr::new(url)).map_err(|err| {
+        anyhow::Error::new(err).context(format!(
+            "--remote-url {} is not a valid git URL",
+            crate::report::quoted(url)
+        ))
+    })
 }
 
 /// A conflict clap cannot see, since pathspecs after `--` never reach it.

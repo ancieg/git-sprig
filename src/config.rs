@@ -89,7 +89,7 @@ pub struct Config {
     /// Top-level submodule paths to exclude.
     pub excludes: Vec<String>,
     /// Base for relative submodule URLs; the source's remote or URL if absent.
-    pub remote_url: Option<String>,
+    pub remote_url: Option<gix::Url>,
     /// `key=value` pairs for the fetches, like `git -c`.
     pub overrides: Vec<String>,
     pub tempdir: Option<PathBuf>,

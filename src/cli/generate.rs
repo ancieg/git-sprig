@@ -117,7 +117,7 @@ fn bash_git_hook(command: &Command) -> String {
 _git_sprig ()
 {{
 	case "$prev" in
-	--revision)
+	--rev|--revision)
 		__git_complete_refs
 		return
 		;;
@@ -127,8 +127,8 @@ _git_sprig ()
 		;;
 	esac
 	case "$cur" in
-	--revision=*)
-		__git_complete_refs --cur="${{cur##--revision=}}"
+	--rev=*|--revision=*)
+		__git_complete_refs --cur="${{cur#*=}}"
 		return
 		;;
 	--generate-completions=*)

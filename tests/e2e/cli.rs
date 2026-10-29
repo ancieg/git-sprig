@@ -102,7 +102,13 @@ printf '%s\n' "${{COMPREPLY[@]}}"
     };
 
     let options = complete("git sprig --st");
-    let revisions = complete("git sprig --revision=ma");
+    let revisions = [
+        "git sprig --revision=ma",
+        "git sprig --revision ma",
+        "git sprig --rev=ma",
+        "git sprig --rev ma",
+    ]
+    .map(complete);
     let shells = complete("git sprig --generate-completions ");
     std::fs::remove_file(&script).ok();
 
@@ -110,9 +116,11 @@ printf '%s\n' "${{COMPREPLY[@]}}"
         options.lines().any(|word| word.trim() == "--stage"),
         "{options}"
     );
-    assert!(
-        revisions.lines().any(|word| word.trim() == "main"),
-        "{revisions}"
-    );
+    for revisions in revisions {
+        assert!(
+            revisions.lines().any(|word| word.trim() == "main"),
+            "{revisions}"
+        );
+    }
     assert!(shells.lines().any(|word| word.trim() == "fish"), "{shells}");
 }

@@ -16,7 +16,7 @@
 
 //! One run of git-sprig: resolve the revision, plan, check, plant and stage.
 
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
 use gix::{ObjectId, Repository, ThreadSafeRepository, Url};
@@ -319,28 +319,35 @@ fn open_direct(
             report::quoted(from)
         )
     })?;
-    let base_url = match &config.remote_url {
-        Some(url) => gix::url::parse(gix::bstr::BStr::new(url.as_str())).with_context(|| {
-            format!(
-                "--remote-url {} is not a valid git URL",
-                report::quoted(url)
-            )
-        })?,
-        None => root_url.clone(),
-    };
+    let remote_url = config
+        .remote_url
+        .as_ref()
+        .map(|url| {
+            gix::url::parse(gix::bstr::BStr::new(url.as_str())).with_context(|| {
+                format!(
+                    "--remote-url {} is not a valid git URL",
+                    report::quoted(url)
+                )
+            })
+        })
+        .transpose()?;
 
     let local_source = Path::new(from).exists();
     let fetcher = (config.mode == Mode::Plant || !local_source)
         .then(|| Fetcher::new(config.tempdir.clone(), config.overrides.clone(), cancel))
         .transpose()
         .context("cannot create temporary storage")?;
-    let (repository, commit) = if local_source {
+    let (repository, commit, base_url) = if local_source {
         let repo = discover_with_overrides(Path::new(from), &config.overrides)?;
         if config.checkouts == Checkouts::Refuse {
             refuse_enclosing_destination(&config.basedir, &repo)?;
         }
         let commit = resolve_commit_id(&repo, &config.rev)?;
-        (RootRepository::Local(repo.into_sync()), commit)
+        let base_url = match remote_url {
+            Some(url) => url,
+            None => local_url(&repo)?,
+        };
+        (RootRepository::Local(repo.into_sync()), commit, base_url)
     } else {
         let fetch = fetcher
             .as_ref()
@@ -359,7 +366,11 @@ fn open_direct(
             "Repository {}: fetched {strategy}",
             report::quoted(from)
         );
-        (RootRepository::Remote(repo), commit)
+        (
+            RootRepository::Remote(repo),
+            commit,
+            remote_url.unwrap_or(root_url),
+        )
     };
     Ok(DirectSource {
         repository,
@@ -367,6 +378,28 @@ fn open_direct(
         base_url,
         fetcher,
     })
+}
+
+/// Relative submodule URLs of a local source are resolved against its
+/// absolute path, as `git clone` records it, so they do not depend on how
+/// the path was spelled or on which subdirectory it named. `.` and `..` are
+/// folded first, since resolving takes every component for a directory.
+fn local_url(repo: &Repository) -> Result<Url> {
+    let path = repo.workdir().unwrap_or_else(|| repo.git_dir());
+    let absolute = std::path::absolute(path)
+        .with_context(|| format!("cannot make {} absolute", report::quoted(path.display())))?;
+    let mut folded = PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                folded.pop();
+            }
+            other => folded.push(other),
+        }
+    }
+    gix::url::parse(fs::path_bytes(&folded))
+        .with_context(|| format!("cannot use {} as a URL", report::quoted(folded.display())))
 }
 
 /// Replacing a destination that holds the local source deletes the source

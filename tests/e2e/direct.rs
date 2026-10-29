@@ -173,6 +173,33 @@ fn resolves_relative_root_submodule_urls() {
 }
 
 #[test]
+fn resolves_relative_submodule_urls_against_the_local_source() {
+    let fx = Fixture::new();
+    let sup = fx.superproject();
+    set_child_url(&sup, "../child");
+
+    // However the source is spelled, `../child` is the sibling of `super`.
+    for (index, (cwd, source)) in [
+        (sup.clone(), "."),
+        (sup.join("vendor"), ".."),
+        (fx.path("remotes"), "super/vendor"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let out = fx.path(&format!("out-{index}"));
+        let output = git_sprig(&[source, out.to_str().unwrap()])
+            .current_dir(&cwd)
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{source}: {stderr}");
+        assert_eq!(read(&out.join("super.txt")), "superproject\n");
+        assert_eq!(read(&out.join("vendor/child/hello.txt")), "child\n");
+    }
+}
+
+#[test]
 fn replaces_a_plain_destination_only_after_complete_success() {
     let fx = Fixture::new();
     let sup = fx.superproject();

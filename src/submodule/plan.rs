@@ -79,7 +79,6 @@ pub fn plan(
     modules: &Modules,
     parent_url: Option<&Url>,
     root: &Path,
-    config: &gix::config::File,
     reporter: &Reporter,
     mut selection: Option<&mut gix::pathspec::Search>,
 ) -> Result<Vec<Planned>> {
@@ -114,13 +113,7 @@ pub fn plan(
             continue;
         };
 
-        let active = modules.is_active(entry, config).with_context(|| {
-            format!(
-                "cannot tell whether submodule {} is active",
-                report::quoted(&entry.name)
-            )
-        })?;
-        if !active {
+        if !entry.active {
             report::detail!(
                 reporter,
                 "Skipping submodule {}: not active",

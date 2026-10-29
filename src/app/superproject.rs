@@ -126,7 +126,7 @@ fn plan_submodules(
         None => pinned_in_index(repo, reporter)?,
     };
     let git_config = repo.config_snapshot();
-    modules.configure(git_config.plumbing(), Scope::Repository);
+    modules.configure(git_config.plumbing(), Scope::Repository)?;
     let mut selection = plan::selection(
         &config.includes,
         &config.excludes,
@@ -137,7 +137,6 @@ fn plan_submodules(
         &modules,
         Some(&base_url),
         work_tree,
-        git_config.plumbing(),
         reporter,
         selection.as_mut(),
     )?;

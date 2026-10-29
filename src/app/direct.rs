@@ -282,14 +282,13 @@ fn plan_submodules(
     let mut modules = Modules::from_tree(repo, tree_id, reporter)
         .context("cannot read .gitmodules of the repository")?;
     let git_config = repo.config_snapshot();
-    modules.configure(git_config.plumbing(), Scope::Clone);
+    modules.configure(git_config.plumbing(), Scope::Clone)?;
     let mut selection = plan::selection(&config.includes, &config.excludes, None)?;
     plan::plan(
         gitlinks,
         &modules,
         Some(base_url),
         destination,
-        git_config.plumbing(),
         reporter,
         selection.as_mut(),
     )

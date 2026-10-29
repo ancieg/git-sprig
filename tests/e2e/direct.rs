@@ -156,6 +156,23 @@ fn dash_b_names_the_branch_as_in_git_clone() {
 }
 
 #[test]
+fn a_local_sources_own_settings_do_not_apply_as_for_git_clone() {
+    let fx = Fixture::new();
+    let sup = fx.superproject();
+    git(&sup, &["config", "submodule.vendor/child.active", "false"]);
+    let source = sup.to_str().unwrap();
+
+    let out = fx.path("out");
+    direct(source, &out, "HEAD", &[]).assert_ok();
+    assert_eq!(read(&out.join("vendor/child/hello.txt")), "child\n");
+
+    let out = fx.path("off");
+    let off = ["-c", "submodule.vendor/child.active=false"];
+    direct(source, &out, "HEAD", &off).assert_ok();
+    assert!(!out.join("vendor/child/hello.txt").exists());
+}
+
+#[test]
 fn reuses_conversion_and_recursive_submodule_materialization() {
     let fx = Fixture::new();
     let sup = fx.superproject();

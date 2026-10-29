@@ -32,7 +32,7 @@ rejected or done.
 | An HTTP client shared by several fetches | Nothing found | Nothing (see Performance) |
 | Interrupting a fetch blocked on a read | Nothing found; issue [#24](https://github.com/GitoxideLabs/gitoxide/issues/24), about being killed midway, is closed | After Ctrl-C, a watchdog removes temporary and staging directories and exits if work has not wound down within 3 s |
 | Parallel checkout | Exists: `gix-worktree-state` `checkout` with `thread_limit` | Not used: it would bypass git-sprig's streaming and staging, so git-sprig writes in parallel itself |
-| `submodule.<name>.active` | Exists: `gix_submodule::File::is_active_platform` | Used for `submodule.active` pathspecs; its last rule (active only with a configured `url`) is skipped, because that only holds after `git submodule init` |
+| `submodule.<name>.active` | Exists: `gix_submodule::File::is_active_platform` | Not used: it reads the whole configuration, while a direct export has to leave out the source repository's own settings, as `git clone` does. git-sprig applies the same rules itself, except the last one (active only with a configured `url`), which only holds after `git submodule init` |
 
 - [ ] Describe git-sprig's approach in discussion #2789: blobs stored whole are
       inflated from `pack::data::File::entry_slice` with `gix::zlib::Decompress`.

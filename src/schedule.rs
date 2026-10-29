@@ -536,14 +536,6 @@ fn nested(
     let mut modules = Modules::from_tree(repo, tree_id, reporter)
         .with_context(|| format!("cannot read .gitmodules of {}", report::quoted(url)))?;
     let git_config = repo.config_snapshot();
-    modules.configure(git_config.plumbing(), Scope::Clone);
-    plan::plan(
-        gitlinks,
-        &modules,
-        Some(url),
-        destination,
-        git_config.plumbing(),
-        reporter,
-        None,
-    )
+    modules.configure(git_config.plumbing(), Scope::Clone)?;
+    plan::plan(gitlinks, &modules, Some(url), destination, reporter, None)
 }

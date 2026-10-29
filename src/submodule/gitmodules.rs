@@ -39,6 +39,8 @@ pub struct Entry {
     pub url: BString,
     /// `submodule.<name>.update`; `none` keeps git from checking it out.
     pub update: Option<BString>,
+    /// Whether git would check it out, as the configuration decides.
+    pub active: bool,
 }
 
 /// Whose `submodule.*` settings count, such as those that take precedence
@@ -66,7 +68,6 @@ impl Scope {
 #[derive(Debug, Default)]
 pub struct Modules {
     by_path: HashMap<BString, Entry>,
-    file: Option<gix::submodule::File>,
 }
 
 impl Modules {
@@ -129,6 +130,7 @@ impl Modules {
                         path,
                         url,
                         update,
+                        active: true,
                     });
                 }
                 hash_map::Entry::Occupied(slot) => report::warning!(
@@ -141,17 +143,16 @@ impl Modules {
                 ),
             }
         }
-        Ok(Self {
-            by_path,
-            file: Some(file),
-        })
+        Ok(Self { by_path })
     }
 
     /// Let `config` override `.gitmodules`, as git lets a `submodule.<name>.url`
     /// that `git submodule init` wrote, or that points at a mirror, win, and a
-    /// `submodule.<name>.update` bring back a submodule `.gitmodules` leaves out.
-    pub fn configure(&mut self, config: &gix::config::File, scope: Scope) {
+    /// `submodule.<name>.update` bring back a submodule `.gitmodules` leaves out;
+    /// and decide from it which submodules are active.
+    pub fn configure(&mut self, config: &gix::config::File, scope: Scope) -> Result<()> {
         let mut in_scope = |meta: &gix::config::file::Metadata| scope.admits(meta);
+        let mut pathspecs = active_pathspecs(config, scope)?;
         for entry in self.by_path.values_mut() {
             let key = format!("submodule.{}.url", entry.name);
             if let Some(url) = config
@@ -164,35 +165,66 @@ impl Modules {
             if let Some(update) = config.string_filter(key.as_str(), &mut in_scope) {
                 entry.update = Some(update);
             }
+            entry.active =
+                is_active(entry, config, scope, pathspecs.as_mut()).with_context(|| {
+                    format!(
+                        "cannot tell whether submodule {} is active",
+                        report::quoted(&entry.name)
+                    )
+                })?;
         }
+        Ok(())
     }
 
     pub fn by_path(&self, path: &Path) -> Option<&Entry> {
         self.by_path
             .get(&normalize_path(path.as_os_str().as_bytes().as_bstr()))
     }
+}
 
-    /// Whether `entry` is active according to `config`, as `git submodule update
-    /// --init` decides: `submodule.<name>.active` first, then a
-    /// `submodule.active` pathspec, and active otherwise. gix's own check ends
-    /// with "only if `submodule.<name>.url` is configured", which holds only
-    /// after `git submodule init`, the step git-sprig stands in for.
-    pub fn is_active(&self, entry: &Entry, config: &gix::config::File) -> Result<bool> {
-        let key = format!("submodule.{}.active", entry.name);
-        if let Some(active) = config.boolean(key.as_str())? {
-            return Ok(active);
-        }
-        let Some(file) = &self.file else {
-            return Ok(true);
-        };
-        if config.strings("submodule.active").is_none() {
-            return Ok(true);
-        }
-        let mut platform = file.is_active_platform(config, gix::pathspec::Defaults::default())?;
-        // git matches `submodule.active` against paths, so the path goes where
-        // gix expects a name; the name's own `active` key was checked above.
-        Ok(platform.is_active(config, entry.path.as_ref(), &mut |_, _, _, _| false)?)
+/// The `submodule.active` pathspecs in `scope`, if any are set.
+fn active_pathspecs(
+    config: &gix::config::File,
+    scope: Scope,
+) -> Result<Option<gix::pathspec::Search>> {
+    let Some(patterns) = config.strings_filter("submodule.active", |meta| scope.admits(meta))
+    else {
+        return Ok(None);
+    };
+    let patterns = patterns
+        .iter()
+        .map(|pattern| gix::pathspec::parse(pattern, gix::pathspec::Defaults::default()))
+        .collect::<Result<Vec<_>, _>>()
+        .context("invalid submodule.active pathspec")?;
+    let search = gix::pathspec::Search::from_specs(patterns, None, Path::new(""))
+        .context("invalid submodule.active pathspec")?;
+    Ok(Some(search))
+}
+
+/// Whether `entry` is active, as `git submodule update --init` decides:
+/// `submodule.<name>.active` first, then a `submodule.active` pathspec, and
+/// active otherwise. git's last rule, "only if `submodule.<name>.url` is
+/// configured", holds only after `git submodule init`, the step git-sprig
+/// stands in for. gix implements the same rules, but reads the whole
+/// configuration, so settings outside `scope` could not be left out.
+fn is_active(
+    entry: &Entry,
+    config: &gix::config::File,
+    scope: Scope,
+    pathspecs: Option<&mut gix::pathspec::Search>,
+) -> Result<bool> {
+    let key = format!("submodule.{}.active", entry.name);
+    if let Some(active) = config.boolean_filter(key.as_str(), |meta| scope.admits(meta))? {
+        return Ok(active);
     }
+    // git matches `submodule.active` against paths, not names.
+    Ok(pathspecs.is_none_or(|search| {
+        search
+            .pattern_matching_relative_path(entry.path.as_ref(), Some(true), &mut |_, _, _, _| {
+                false
+            })
+            .is_some_and(|matched| !matched.is_excluded())
+    }))
 }
 
 /// `a//b/` and `./a/b` both describe `a/b`.
@@ -261,7 +293,7 @@ mod tests {
         };
         let url = |source, scope| {
             let mut modules = Modules::from_bytes(gitmodules, &reporter()).unwrap();
-            modules.configure(&config(source), scope);
+            modules.configure(&config(source), scope).unwrap();
             modules.by_path(Path::new("lib")).unwrap().url.to_string()
         };
         assert_eq!(url(Local, Scope::Repository), "https://mirror/lib");
@@ -271,29 +303,40 @@ mod tests {
 
     #[test]
     fn submodules_are_active_unless_configured_otherwise() {
-        let modules = Modules::from_bytes(
-            b"[submodule \"docs\"]\n\tpath = extra/docs\n\turl = https://a/docs\n\
-              [submodule \"lib\"]\n\tpath = vendor/lib\n\turl = https://a/lib\n",
-            &reporter(),
-        )
-        .unwrap();
-        let docs = modules.by_path(Path::new("extra/docs")).unwrap();
-        let lib = modules.by_path(Path::new("vendor/lib")).unwrap();
-        let config = |text: &str| gix::config::File::try_from(text).unwrap();
+        use gix::config::Source::{Cli, Local};
 
-        let none = config("");
-        assert!(modules.is_active(docs, &none).unwrap());
+        // Whether `docs` and `lib` are active with `text` from `source` in `scope`.
+        let active = |text: &str, source, scope| {
+            let mut modules = Modules::from_bytes(
+                b"[submodule \"docs\"]\n\tpath = extra/docs\n\turl = https://a/docs\n\
+                  [submodule \"lib\"]\n\tpath = vendor/lib\n\turl = https://a/lib\n",
+                &reporter(),
+            )
+            .unwrap();
+            let mut text = text.as_bytes().to_vec();
+            let config = gix::config::File::from_bytes_owned(
+                &mut text,
+                gix::config::file::Metadata::from(source),
+                gix::config::file::init::Options::default(),
+            )
+            .unwrap();
+            modules.configure(&config, scope).unwrap();
+            let active = |path| modules.by_path(Path::new(path)).unwrap().active;
+            (active("extra/docs"), active("vendor/lib"))
+        };
+        let repo = Scope::Repository;
 
-        let by_name = config("[submodule \"docs\"]\n\tactive = false\n");
-        assert!(!modules.is_active(docs, &by_name).unwrap());
-        assert!(modules.is_active(lib, &by_name).unwrap());
+        assert_eq!(active("", Local, repo), (true, true));
+        let by_name = "[submodule \"docs\"]\n\tactive = false\n";
+        assert_eq!(active(by_name, Local, repo), (false, true));
+        let by_path = "[submodule]\n\tactive = vendor/*\n";
+        assert_eq!(active(by_path, Local, repo), (false, true));
+        let name_wins = "[submodule]\n\tactive = vendor/*\n[submodule \"docs\"]\n\tactive = true\n";
+        assert_eq!(active(name_wins, Local, repo), (true, true));
 
-        let by_path = config("[submodule]\n\tactive = vendor/*\n");
-        assert!(!modules.is_active(docs, &by_path).unwrap());
-        assert!(modules.is_active(lib, &by_path).unwrap());
-
-        let name_wins =
-            config("[submodule]\n\tactive = vendor/*\n[submodule \"docs\"]\n\tactive = true\n");
-        assert!(modules.is_active(docs, &name_wins).unwrap());
+        // A clone sees no settings of the repository it is made from, only -c.
+        assert_eq!(active(by_name, Local, Scope::Clone), (true, true));
+        assert_eq!(active(by_path, Local, Scope::Clone), (true, true));
+        assert_eq!(active(by_name, Cli, Scope::Clone), (false, true));
     }
 }

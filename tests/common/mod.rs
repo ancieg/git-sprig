@@ -234,6 +234,27 @@ impl Run {
     }
 }
 
+/// Run `git <args>` in `dir` with the git-sprig under test first on `PATH`,
+/// so `git sprig` reaches it the way users invoke it.
+pub fn through_git(dir: &Path, args: &[&str]) -> Run {
+    let bin = Path::new(env!("CARGO_BIN_EXE_git-sprig")).parent().unwrap();
+    let mut paths = vec![bin.to_owned()];
+    paths.extend(std::env::split_paths(
+        &std::env::var_os("PATH").unwrap_or_default(),
+    ));
+    let out = isolated(Command::new("git"))
+        .current_dir(dir)
+        .env("PATH", std::env::join_paths(paths).unwrap())
+        .args(args)
+        .output()
+        .expect("git must be installed");
+    Run {
+        ok: out.status.success(),
+        code: out.status.code(),
+        stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+    }
+}
+
 pub fn run(args: &[&str]) -> Run {
     let out = git_sprig(args).output().expect("binary must be built");
     Run {

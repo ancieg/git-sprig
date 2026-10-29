@@ -71,7 +71,11 @@ fn main() -> ExitCode {
             return ExitCode::from(status);
         }
     };
-    let config = match args.into_action() {
+    let action = match args.into_action() {
+        Ok(action) => action,
+        Err(err) => return fatal(&err),
+    };
+    let config = match action {
         Action::GenerateMan => return generated(cli::generate::man(Args::command())),
         Action::GenerateCompletions(shell) => {
             return generated(Ok(cli::generate::completions(shell, Args::command())));

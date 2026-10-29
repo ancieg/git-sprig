@@ -150,10 +150,12 @@ project itself came from. If the checkout has no remote, tell git-sprig:
 $ git-sprig --remote-url https://example.com/project.git
 ```
 
-**Go through a proxy**, or pass any other git setting for the downloads:
+**Go through a proxy**, or pass any other git setting, with `-c` before or
+after `sprig`, as with any git command:
 
 ```console
 $ git-sprig -c http.proxy=http://proxy.example.com:3128
+$ git -c http.proxy=http://proxy.example.com:3128 sprig
 ```
 
 ## Options

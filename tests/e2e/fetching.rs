@@ -298,6 +298,26 @@ fn inactive_submodules_are_skipped() {
     );
     assert!(!out.join("vendor/grand/g.txt").exists());
 
+    // `git -c` reaches git-sprig through git, and our own -c comes later.
+    let sup = clone.to_str().unwrap();
+    let child_active = |value: &str| format!("submodule.vendor/child.active={value}");
+    let out = fx.path("out-through-git");
+    let out = out.to_str().unwrap();
+    let off = child_active("false");
+    let run = through_git(
+        fx.root.path(),
+        &["-c", &off, "sprig", "-C", sup, "-b", out, "-v"],
+    );
+    run.assert_ok();
+    run.assert_says("vendor/child': not active");
+    let on = child_active("true");
+    let args = ["-c", &off, "sprig", "-C", sup, "-b", out, "-c", &on];
+    through_git(fx.root.path(), &args).assert_ok();
+    assert_eq!(
+        read(&fx.path("out-through-git/vendor/child/hello.txt")),
+        "child\n"
+    );
+
     // -c applies to the superproject, like `git -c`.
     git(&clone, &["config", "--unset", "submodule.active"]);
     let out = fx.path("out-by-override");
